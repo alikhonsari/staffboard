@@ -19,15 +19,34 @@ const defaultAdminUser = process.env.STAFFBOARD_ADMIN_USER || 'admin'
 const defaultAdminPass = process.env.STAFFBOARD_ADMIN_PASS || ''
 
 function getAdminUsers() {
+  const users = []
+
+  if (defaultAdminUser && defaultAdminPass) {
+    users.push({ username: defaultAdminUser, password: defaultAdminPass, role: 'admin', source: 'STAFFBOARD_ADMIN_USER/PASS' })
+  }
+
   if (process.env.STAFFBOARD_ADMINS_JSON) {
     try {
       const parsed = JSON.parse(process.env.STAFFBOARD_ADMINS_JSON)
-      if (Array.isArray(parsed)) return parsed
+      if (Array.isArray(parsed)) {
+        parsed.forEach((user) => {
+          if (user?.username && user?.password) {
+            users.push({ username: user.username, password: user.password, role: user.role || 'admin', source: 'STAFFBOARD_ADMINS_JSON' })
+          }
+        })
+      }
     } catch (err) {
-      console.warn('Invalid STAFFBOARD_ADMINS_JSON. Falling back to STAFFBOARD_ADMIN_USER/PASS.')
+      console.warn('Invalid STAFFBOARD_ADMINS_JSON. Use valid JSON or STAFFBOARD_ADMIN_USER/PASS.')
     }
   }
-  return [{ username: defaultAdminUser, password: defaultAdminPass, role: 'admin' }]
+
+  const seen = new Set()
+  return users.filter((user) => {
+    const key = `${user.username}:${user.password}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function signToken(payload) {
@@ -37,13 +56,18 @@ function signToken(payload) {
 }
 
 function verifyToken(token) {
-  if (!token || !token.includes('.')) return null
-  const [body, sig] = token.split('.')
-  const expected = crypto.createHmac('sha256', authSecret).update(body).digest('base64url')
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
-  const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'))
-  if (payload.exp && Date.now() > payload.exp) return null
-  return payload
+  try {
+    if (!token || !token.includes('.')) return null
+    const [body, sig] = token.split('.')
+    const expected = crypto.createHmac('sha256', authSecret).update(body).digest('base64url')
+    if (Buffer.byteLength(sig) !== Buffer.byteLength(expected)) return null
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'))
+    if (payload.exp && Date.now() > payload.exp) return null
+    return payload
+  } catch {
+    return null
+  }
 }
 
 function requireAuth(req, res, next) {
@@ -55,11 +79,23 @@ function requireAuth(req, res, next) {
   next()
 }
 
+app.get('/api/auth/status', (req, res) => {
+  const users = getAdminUsers()
+  res.json({
+    configured: users.length > 0,
+    usernames: users.map((user) => user.username),
+    adminUserEnvPresent: Boolean(process.env.STAFFBOARD_ADMIN_USER),
+    adminPassEnvPresent: Boolean(process.env.STAFFBOARD_ADMIN_PASS),
+    adminsJsonPresent: Boolean(process.env.STAFFBOARD_ADMINS_JSON),
+    authSecretPresent: Boolean(process.env.STAFFBOARD_AUTH_SECRET),
+  })
+})
+
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {}
   const users = getAdminUsers()
   const found = users.find((u) => u.username === username && u.password === password)
-  if (!found || !found.password) return res.status(401).json({ error: 'Invalid username or password' })
+  if (!found) return res.status(401).json({ error: 'Invalid username or password' })
   const token = signToken({
     username: found.username,
     role: found.role || 'admin',
@@ -71,8 +107,6 @@ app.post('/api/login', (req, res) => {
 app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: { username: req.user.username, role: req.user.role } })
 })
-
-
 
 const bucket = process.env.DO_SPACES_BUCKET || ''
 const region = process.env.DO_SPACES_REGION || 'nyc3'
@@ -142,6 +176,7 @@ if (process.env.NODE_ENV === 'production') {
 
 app.listen(PORT, () => {
   console.log(`StaffBoard 2.0 running on http://localhost:${PORT}`)
+  console.log(`Auth configured for ${getAdminUsers().length} admin user(s).`)
   if (s3) console.log(`Saving to DigitalOcean Spaces bucket ${bucket}, key ${stateKey}`)
   else console.log('Spaces not configured; browser localStorage still works.')
 })
