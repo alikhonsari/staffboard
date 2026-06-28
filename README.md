@@ -1,43 +1,25 @@
-# StaffBoard 2.0
+# StaffBoard V6
 
-Merged deployable staffing board for DigitalOcean App Platform.
+Full V6 staffing board restored for DigitalOcean App Platform.
 
 ## Included
 
-- Admin login screen
-- Protected `/api/login`, `/api/me`, and `/api/state`
-- DigitalOcean Spaces shared save/load
-- Full weekly V6 staffing board UI
-- Board tabs for Board, Analysis, Builders, and Comments
-- Builder master roster, badge colors, training tags, trainer/safety/line-lead flags
-- Drag-and-drop staffing by area
-- Q1 / Q2 / Q3 snapshots
-- Day, weekly, attendance, roster, JSON, PNG, PDF, and Excel exports
-- Day and night boards for SPEED, FA Lab, and Bodega
-- Rack ID paste fields for prepped and processed rack lists with material type counts
-
-## Local run
-
-```bash
-npm install
-npm run dev
-```
-
-Open the app at `http://localhost:8787`.
-
-## Build
-
-```bash
-npm run build
-npm start
-```
+- Full weekly V6 staffing board UI.
+- Board tabs, analysis, builders, and comments.
+- Builder master roster, badge colors, training tags, trainer/safety/line-lead flags.
+- Drag-and-drop staffing by area.
+- Q1 / Q2 / Q3 snapshots.
+- Day, weekly, attendance, roster, JSON, PNG, PDF, and Excel exports.
+- SPEED / FA / Bodega board presets from the V6 app.
+- Shared state saved to DigitalOcean Spaces.
+- Shared admin token for multiple admins.
 
 ## DigitalOcean App Platform
 
 Build command:
 
 ```bash
-npm install && npm run build
+npm install --no-audit --no-fund
 ```
 
 Run command:
@@ -48,27 +30,41 @@ npm start
 
 Port:
 
-```bash
+```text
 8787
 ```
 
 ## Required environment variables
 
+Set these only in DigitalOcean App Platform. Do not commit real values to GitHub.
+
 ```bash
 PORT=8787
-STAFFBOARD_ADMIN_USER=ali
-STAFFBOARD_ADMIN_PASS=your-password
-STAFFBOARD_AUTH_SECRET=make-this-a-long-random-secret
-DO_SPACES_KEY=your-spaces-key
-DO_SPACES_SECRET=your-spaces-secret
-DO_SPACES_BUCKET=staffboard
-DO_SPACES_REGION=nyc3
-DO_SPACES_ENDPOINT=https://nyc3.digitaloceanspaces.com
-DO_SPACES_KEY_PREFIX=staffboard-2/
+AUTH_TOKEN=your-admin-token
+SPACES_ENDPOINT=https://nyc3.digitaloceanspaces.com
+SPACES_REGION=us-east-1
+SPACES_BUCKET=staffboard
+SPACES_KEY=your-spaces-key
+SPACES_SECRET=your-spaces-secret
+SPACES_OBJECT_KEY=weekly/staffboard-2/staffboard-state.json
 ```
 
-For multiple admins, use:
+## Health check
 
-```bash
-STAFFBOARD_ADMINS_JSON=[{"username":"ali","password":"pass1","role":"admin"},{"username":"manager","password":"pass2","role":"admin"}]
+After deploy:
+
+```text
+/api/health
 ```
+
+Expected fields:
+
+```json
+{
+  "ok": true,
+  "authConfigured": true,
+  "spacesConfigured": true
+}
+```
+
+When the app opens, it will ask each admin for the shared admin token once and then save it in that browser.
