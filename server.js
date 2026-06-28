@@ -14,9 +14,13 @@ const PORT = Number(process.env.PORT || 8787)
 
 app.use(express.json({ limit: '25mb' }))
 
+function cleanAuthValue(value) {
+  return String(value || '').trim()
+}
+
 const authSecret = process.env.STAFFBOARD_AUTH_SECRET || process.env.DO_SPACES_SECRET || 'change-this-secret'
-const defaultAdminUser = process.env.STAFFBOARD_ADMIN_USER || 'admin'
-const defaultAdminPass = process.env.STAFFBOARD_ADMIN_PASS || ''
+const defaultAdminUser = cleanAuthValue(process.env.STAFFBOARD_ADMIN_USER || 'admin')
+const defaultAdminPass = cleanAuthValue(process.env.STAFFBOARD_ADMIN_PASS || '')
 
 function getAdminUsers() {
   const users = []
@@ -30,8 +34,10 @@ function getAdminUsers() {
       const parsed = JSON.parse(process.env.STAFFBOARD_ADMINS_JSON)
       if (Array.isArray(parsed)) {
         parsed.forEach((user) => {
-          if (user?.username && user?.password) {
-            users.push({ username: user.username, password: user.password, role: user.role || 'admin', source: 'STAFFBOARD_ADMINS_JSON' })
+          const username = cleanAuthValue(user?.username)
+          const password = cleanAuthValue(user?.password)
+          if (username && password) {
+            users.push({ username, password, role: user.role || 'admin', source: 'STAFFBOARD_ADMINS_JSON' })
           }
         })
       }
@@ -92,10 +98,17 @@ app.get('/api/auth/status', (req, res) => {
 })
 
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body || {}
+  const username = cleanAuthValue(req.body?.username)
+  const password = cleanAuthValue(req.body?.password)
   const users = getAdminUsers()
   const found = users.find((u) => u.username === username && u.password === password)
-  if (!found) return res.status(401).json({ error: 'Invalid username or password' })
+  if (!found) {
+    return res.status(401).json({
+      error: 'Invalid username or password',
+      configured: users.length > 0,
+      configuredUsernames: users.map((user) => user.username),
+    })
+  }
   const token = signToken({
     username: found.username,
     role: found.role || 'admin',
