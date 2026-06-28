@@ -18,6 +18,8 @@ function normalize(defaultState, saved) {
 }
 
 function getAuthToken() {
+  const appLogin = localStorage.getItem('staffboard2_token') || ''
+  if (appLogin) return appLogin
   let token = localStorage.getItem(AUTH_TOKEN_KEY) || ''
   if (!token) {
     token = window.prompt('Enter StaffBoard admin token')?.trim() || ''
@@ -71,5 +73,11 @@ export async function saveRemoteState(state) {
   }
   if (!res.ok) throw new Error(await res.text() || 'Failed to save remote state')
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  return res.json()
+}
+
+export async function loadHistory() {
+  const res = await fetch('/api/history', { headers: authHeaders() })
+  if (!res.ok) throw new Error(await res.text() || 'Failed to load history')
   return res.json()
 }
