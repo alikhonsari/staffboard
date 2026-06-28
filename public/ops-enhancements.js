@@ -5,9 +5,10 @@
   const QUARTER_KEY = 'staffboard_quarter_media_v1'
   const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
   const STAFFED = new Set(['Present', 'Training', 'Indirect'])
+  const PRIORITY_AREAS = ['Rack Prep', 'OB1', 'OB2', 'Speed Lite', 'Speed Line 1', 'Speed Line 2', 'Speed Line 3', 'Shipping']
 
   function esc(value) {
-    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]))
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] || '&#039;'))
   }
 
   function number(value) {
@@ -35,6 +36,12 @@
     return s.weeklyData?.[s.selectedDay || 'Monday'] || {}
   }
 
+  function builderName(s, id) {
+    const found = (s.builderPool || []).find((b) => b.id === id)
+    if (found?.name) return found.name
+    return 'Unassigned builder'
+  }
+
   function rowType(raw) {
     const low = String(raw || '').toLowerCase()
     if (low.includes('decom')) return 'Decom'
@@ -54,6 +61,31 @@
       })
   }
 
+  function textNear(labelWords) {
+    const labels = Array.from(document.querySelectorAll('label, .table-kicker, .ops-label, .small, div, span'))
+    const match = labels.find((el) => {
+      const text = (el.textContent || '').toLowerCase()
+      return labelWords.every((word) => text.includes(word))
+    })
+    if (!match) return ''
+    const card = match.closest('.card, .summary-card-block, .ops, .field, div') || match.parentElement
+    const field = card?.querySelector('textarea, input') || match.parentElement?.querySelector('textarea, input')
+    return field?.value || ''
+  }
+
+  function visibleRackText(kind) {
+    const words = kind === 'prepped' ? ['prepped', 'rack'] : ['processed', 'rack']
+    return textNear(words)
+  }
+
+  function metricText(d, keys) {
+    for (const key of keys) {
+      const value = d?.rackLists?.[key] ?? d?.opsMetrics?.[key]
+      if (value) return String(value)
+    }
+    return ''
+  }
+
   function summarizeRackText(preppedText, processedText) {
     const prepped = parseRackRows(preppedText)
     const processed = parseRackRows(processedText)
@@ -64,13 +96,14 @@
     }
     prepped.forEach((row) => { counts.prepped[row.materialType] += 1; counts.total[row.materialType] += 1 })
     processed.forEach((row) => { counts.processed[row.materialType] += 1; counts.total[row.materialType] += 1 })
-    return { prepped, processed, counts }
+    return { prepped, processed, counts, preppedText, processedText }
   }
 
   function dayRackSummary(s, dayName = s.selectedDay || 'Monday') {
     const d = s.weeklyData?.[dayName] || {}
-    const preppedText = d.rackLists?.prepped || d.opsMetrics?.preppedRackList || ''
-    const processedText = d.rackLists?.processed || d.opsMetrics?.processedRackList || ''
+    const selected = dayName === (s.selectedDay || 'Monday')
+    const preppedText = metricText(d, ['prepped', 'preppedRackList', 'preppedRackIds', 'rackPrepIds']) || (selected ? visibleRackText('prepped') : '')
+    const processedText = metricText(d, ['processed', 'processedRackList', 'processedRackIds', 'rackProcessedIds']) || (selected ? visibleRackText('processed') : '')
     return summarizeRackText(preppedText, processedText)
   }
 
@@ -108,21 +141,12 @@
   function quarterMetrics(s) {
     const d = selectedDayState(s)
     const qs = d.snapshots || {}
-    const hc = {
-      q1: snapshotHeadcount(qs.q1),
-      q2: snapshotHeadcount(qs.q2),
-      q3: snapshotHeadcount(qs.q3),
-    }
+    const hc = { q1: snapshotHeadcount(qs.q1), q2: snapshotHeadcount(qs.q2), q3: snapshotHeadcount(qs.q3) }
     const values = Object.values(hc).filter((v) => v != null)
     const avgSnapshotHc = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null
     const fullDayHc = number(d.opsMetrics?.manualHeadCount) || activeHeadcount(d, s.builderPool || [])
     const qStore = quarters()[currentQuarterKey(s)] || { q1: '', q2: '', q3: '', q4: '' }
-    const qMedia = {
-      q1: number(qStore.q1),
-      q2: number(qStore.q2),
-      q3: number(qStore.q3),
-      q4: number(qStore.q4),
-    }
+    const qMedia = { q1: number(qStore.q1), q2: number(qStore.q2), q3: number(qStore.q3), q4: number(qStore.q4) }
     const qTotal = qMedia.q1 + qMedia.q2 + qMedia.q3 + qMedia.q4
     const mediaCount = number(d.opsMetrics?.totalMediaCount)
     const mediaProcessed = number(d.opsMetrics?.mediaProcessed)
@@ -137,50 +161,95 @@
   function areaCounts(s) {
     const d = selectedDayState(s)
     const areas = areaDefinitions(s)
-    const builderMap = new Map((s.builderPool || []).map((b) => [b.id, b]))
     const counts = Object.fromEntries(areas.map((a) => [a.name, { name: a.name, capacity: number(a.capacity), builders: [] }]))
     Object.entries(d.assignments || {}).forEach(([id, a]) => {
       if (!STAFFED.has(a.status || 'Present')) return
       const area = a.area || 'Unassigned'
       if (!counts[area]) counts[area] = { name: area, capacity: 0, builders: [] }
-      counts[area].builders.push({ id, name: builderMap.get(id)?.name || id, assignment: a })
+      counts[area].builders.push({ id, name: builderName(s, id), assignment: a })
     })
     return Object.values(counts)
   }
 
+  function addDays(dateStr, days) {
+    const d = new Date(`${dateStr}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return ''
+    d.setDate(d.getDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
+  function previousWeekData(s) {
+    const previousKey = addDays(s.weekStartDate || '', -7)
+    return (s.weeklyBoards && s.weeklyBoards[previousKey]) || null
+  }
+
+  function previousAreaHours(s) {
+    const prev = previousWeekData(s)
+    const result = {}
+    if (!prev) return result
+    DAYS.forEach((day) => {
+      Object.entries(prev[day]?.assignments || {}).forEach(([id, a]) => {
+        if (!STAFFED.has(a.status || 'Present')) return
+        const area = a.area || 'Unassigned'
+        if (!result[id]) result[id] = {}
+        result[id][area] = (result[id][area] || 0) + 7.5
+      })
+    })
+    return result
+  }
+
+  function totalPrevHoursForArea(prevHours, id, area) {
+    return number(prevHours[id]?.[area])
+  }
+
+  function chooseCandidate(builders, prevHours, avoidArea) {
+    if (!builders.length) return null
+    return builders
+      .map((b) => ({ ...b, previousAreaHours: totalPrevHoursForArea(prevHours, b.id, avoidArea) }))
+      .sort((a, b) => a.previousAreaHours - b.previousAreaHours)[0]
+  }
+
   function rotationSuggestions(s) {
     const counts = areaCounts(s)
+    const prevHours = previousAreaHours(s)
+    const hasPrev = Object.keys(prevHours).length > 0
     const suggestions = []
     const unassigned = counts.find((a) => a.name === 'Unassigned')?.builders || []
-    const emptyPriority = ['Rack Prep', 'OB1', 'OB2', 'Speed Lite', 'Speed Line 1', 'Speed Line 2', 'Speed Line 3', 'Shipping']
-      .filter((name) => (counts.find((a) => a.name === name)?.builders.length || 0) === 0)
+    const emptyPriority = PRIORITY_AREAS.filter((name) => (counts.find((a) => a.name === name)?.builders.length || 0) === 0)
 
     if (unassigned.length && emptyPriority.length) {
-      suggestions.push(`Use ${unassigned[0].name} from Unassigned to cover ${emptyPriority[0]}.`)
+      const target = emptyPriority[0]
+      const person = chooseCandidate(unassigned, prevHours, target) || unassigned[0]
+      suggestions.push(`Use ${person.name} from Unassigned to cover ${target}${hasPrev ? ` (previous week ${target}: ${person.previousAreaHours || 0}h)` : ''}.`)
     }
 
-    const speedLines = ['Speed Lite', 'Speed Line 1', 'Speed Line 2', 'Speed Line 3']
-      .map((name) => counts.find((a) => a.name === name) || { name, builders: [] })
+    const speedLines = ['Speed Lite', 'Speed Line 1', 'Speed Line 2', 'Speed Line 3'].map((name) => counts.find((a) => a.name === name) || { name, builders: [] })
     const maxLine = speedLines.reduce((a, b) => b.builders.length > a.builders.length ? b : a, speedLines[0])
     const minLine = speedLines.reduce((a, b) => b.builders.length < a.builders.length ? b : a, speedLines[0])
     if (maxLine && minLine && maxLine.builders.length - minLine.builders.length > 1) {
-      suggestions.push(`Balance SPEED: move ${maxLine.builders[0]?.name || 'one builder'} from ${maxLine.name} to ${minLine.name}.`)
+      const person = chooseCandidate(maxLine.builders, prevHours, minLine.name) || maxLine.builders[0]
+      suggestions.push(`Balance SPEED: move ${person?.name || 'one builder'} from ${maxLine.name} to ${minLine.name}${hasPrev ? ` (previous week ${minLine.name}: ${person?.previousAreaHours || 0}h)` : ''}.`)
     }
 
     counts.forEach((area) => {
       if (area.capacity && area.builders.length > area.capacity) {
-        const over = area.builders.length - area.capacity
-        suggestions.push(`${area.name} is over capacity by ${over}. Move ${area.builders[0]?.name || 'one builder'} to a lighter area.`)
+        const person = chooseCandidate(area.builders, prevHours, area.name) || area.builders[0]
+        suggestions.push(`${area.name} is over capacity by ${area.builders.length - area.capacity}. Move ${person?.name || 'one builder'} to a lighter area.`)
       }
     })
 
     counts
       .filter((area) => area.name !== 'Unassigned' && area.builders.length >= 4)
       .forEach((area) => {
-        const stable = area.builders.find((b) => (b.assignment?.areaHistory || []).length <= 1) || area.builders[0]
-        if (stable) suggestions.push(`Rotation check: ${stable.name} has stayed in ${area.name}. Consider rotating after the next quarter.`)
+        const person = area.builders
+          .map((b) => ({ ...b, previousAreaHours: totalPrevHoursForArea(prevHours, b.id, area.name) }))
+          .sort((a, b) => b.previousAreaHours - a.previousAreaHours)[0]
+        if (person && person.previousAreaHours >= 15) {
+          suggestions.push(`Rotation check: ${person.name} had ${person.previousAreaHours}h in ${area.name} last week. Rotate them to a different area after the next quarter.`)
+        }
       })
 
+    if (!hasPrev) suggestions.push('Previous week hours not found yet. Save/use last week data for smarter rotation suggestions.')
     if (!suggestions.length) suggestions.push('Coverage looks balanced. No urgent rotation move suggested right now.')
     return suggestions.slice(0, 8)
   }
@@ -216,8 +285,7 @@
       <div><span>Avg Quarter HC</span><strong>${q.avgSnapshotHc ? q.avgSnapshotHc.toFixed(1) : '—'}</strong></div>
       <div><span>Full Day HC</span><strong>${q.fullDayHc}</strong></div>
       <div><span>Media / Avg HC</span><strong>${mediaPerHc.toFixed(1)}</strong></div>
-    </div>
-    <div class="opsx-muted">Quarter HC comes from Q1/Q2/Q3 snapshots. Q media can be entered here for simple analysis and PDF totals.</div>`
+    </div><div class="opsx-muted">Quarter HC comes from Q1/Q2/Q3 snapshots. Q media can be entered here for simple analysis and PDF totals.</div>`
   }
 
   function suggestionsHtml(s) {
@@ -246,11 +314,9 @@
   function renderBody(container, s) {
     const daySummary = dayRackSummary(s)
     const weekSummary = weekRackSummary(s)
+    const inputHint = !daySummary.counts.total.total ? '<div class="opsx-muted">No rack rows found. Paste Excel rows into the visible Prepped/Processed rack boxes, then click Refresh. Rows can be tab, comma, semicolon, or space separated.</div>' : ''
     container.innerHTML = `
-      <div class="opsx-grid">
-        ${card('Daily Decom / SPEED Rack Totals', rackTable(daySummary))}
-        ${card('Weekly Decom / SPEED Rack Totals', rackTable(weekSummary))}
-      </div>
+      <div class="opsx-grid">${card('Daily Decom / SPEED Rack Totals', rackTable(daySummary) + inputHint)}${card('Weekly Decom / SPEED Rack Totals', rackTable(weekSummary))}</div>
       ${card('Simple Quarter / Media / Headcount Analysis', quarterInputs(s) + simpleAnalysisHtml(s))}
       ${card('Rotation Suggestions', suggestionsHtml(s))}
     `
@@ -273,7 +339,7 @@
     const modal = document.createElement('div')
     modal.id = MODAL_ID
     modal.className = 'opsx-modal-backdrop'
-    modal.innerHTML = `<div class="opsx-modal"><div class="opsx-head"><div><h2>Ops Enhancements</h2><div class="opsx-muted">Rack type totals, simple media/headcount analysis, and rotation suggestions</div></div><div style="display:flex;gap:8px"><button class="opsx-btn" data-refresh>Refresh</button><button class="opsx-btn opsx-close" data-close>Close</button></div></div><div class="opsx-body"></div></div>`
+    modal.innerHTML = `<div class="opsx-modal"><div class="opsx-head"><div><h2>Ops Enhancements</h2><div class="opsx-muted">Rack type totals, simple media/headcount analysis, and previous-week rotation suggestions</div></div><div style="display:flex;gap:8px"><button class="opsx-btn" data-refresh>Refresh</button><button class="opsx-btn opsx-close" data-close>Close</button></div></div><div class="opsx-body"></div></div>`
     document.body.appendChild(modal)
     const body = modal.querySelector('.opsx-body')
     const refresh = () => renderBody(body, state())
@@ -298,10 +364,7 @@
   }
 
   function inlineHtml(s) {
-    return `<div class="opsx-inline opsx-card" data-opsx-inline="true">
-      <div class="opsx-title">Decom / SPEED Rack Totals + Rotation Suggestions</div>
-      <div class="opsx-grid"><div>${rackTable(dayRackSummary(s))}</div><div>${suggestionsHtml(s)}</div></div>
-    </div>`
+    return `<div class="opsx-inline opsx-card" data-opsx-inline="true"><div class="opsx-title">Decom / SPEED Rack Totals + Rotation Suggestions</div><div class="opsx-grid"><div>${rackTable(dayRackSummary(s))}</div><div>${suggestionsHtml(s)}</div></div></div>`
   }
 
   function injectInlineCards() {
@@ -317,11 +380,13 @@
 
   function pdfHtml(s, label) {
     const week = weekRackSummary(s)
+    const day = dayRackSummary(s)
     const q = quarterMetrics(s)
+    const rack = label === 'Daily' ? day.counts : week
     return `<div class="opsx-pdf pdf-chart-card" data-opsx-pdf="true"><div class="pdf-chart-title">${label} Rack Type + Simple Analysis</div>
       <table class="pdf-mini-table"><tbody>
-        <tr><td>Weekly Decom Racks</td><td>${week.total.Decom}</td><td>Weekly SPEED Racks</td><td>${week.total.SPEED}</td></tr>
-        <tr><td>Weekly Other Racks</td><td>${week.total.Other}</td><td>Weekly Total Racks</td><td>${week.total.total}</td></tr>
+        <tr><td>${label} Decom Racks</td><td>${rack.total.Decom}</td><td>${label} SPEED Racks</td><td>${rack.total.SPEED}</td></tr>
+        <tr><td>${label} Other Racks</td><td>${rack.total.Other}</td><td>${label} Total Racks</td><td>${rack.total.total}</td></tr>
         <tr><td>Q Media Total</td><td>${q.qTotal}</td><td>Avg Quarter HC</td><td>${q.avgSnapshotHc ? q.avgSnapshotHc.toFixed(1) : '—'}</td></tr>
         <tr><td>Full Day HC</td><td>${q.fullDayHc}</td><td>Media / Avg HC</td><td>${q.avgHc ? ((q.qTotal || q.mediaProcessed || q.mediaCount) / q.avgHc).toFixed(1) : '—'}</td></tr>
       </tbody></table>
@@ -332,9 +397,7 @@
     const s = state()
     document.querySelectorAll('[data-opsx-pdf]').forEach((el) => el.remove())
     const sheets = Array.from(document.querySelectorAll('.pdf-report-sheet'))
-    sheets.forEach((sheet, idx) => {
-      sheet.insertAdjacentHTML('beforeend', pdfHtml(s, idx === 0 ? 'Daily' : 'Weekly'))
-    })
+    sheets.forEach((sheet, idx) => sheet.insertAdjacentHTML('beforeend', pdfHtml(s, idx === 0 ? 'Daily' : 'Weekly')))
   }
 
   function tick() {
