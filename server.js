@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import crypto from 'crypto'
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createServer as createViteServer } from 'vite'
 import { fileURLToPath } from 'url'
@@ -13,35 +14,96 @@ const __dirname = path.dirname(__filename)
 
 const PORT = Number(process.env.PORT || 8787)
 const AUTH_TOKEN = process.env.AUTH_TOKEN || ''
+const AUTH_SECRET = process.env.AUTH_SECRET || process.env.AUTH_TOKEN || process.env.SPACES_SECRET || 'staffboard-dev-secret'
 const BUCKET = process.env.SPACES_BUCKET || ''
 const KEY = process.env.SPACES_OBJECT_KEY || 'weekly/staffboard-2/staffboard-state.json'
+const HISTORY_KEY = process.env.SPACES_HISTORY_KEY || KEY.replace(/\.json$/i, '-history.json')
 const ENDPOINT = process.env.SPACES_ENDPOINT || ''
 const REGION = process.env.SPACES_REGION || 'us-east-1'
 const ACCESS_KEY = process.env.SPACES_KEY || ''
 const SECRET_KEY = process.env.SPACES_SECRET || ''
 
 const spacesConfigured = Boolean(BUCKET && ENDPOINT && ACCESS_KEY && SECRET_KEY)
-
 const s3 = spacesConfigured ? new S3Client({
   endpoint: ENDPOINT,
   region: REGION,
-  credentials: {
-    accessKeyId: ACCESS_KEY,
-    secretAccessKey: SECRET_KEY,
-  },
+  credentials: { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
 }) : null
 
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '12mb' }))
 
-function requireToken(req, res, next) {
-  if (!AUTH_TOKEN) return next()
+function clean(value) {
+  return String(value || '').trim()
+}
+
+function getAdmins() {
+  const raw = process.env.ADMINS_JSON || process.env.STAFFBOARD_ADMINS_JSON || ''
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((admin) => ({ username: clean(admin.username), password: clean(admin.password), role: admin.role || 'admin' }))
+          .filter((admin) => admin.username && admin.password)
+      }
+    } catch (err) {
+      console.warn('Invalid ADMINS_JSON / STAFFBOARD_ADMINS_JSON')
+    }
+  }
+  const envUser = clean(process.env.STAFFBOARD_ADMIN_USER || process.env.ADMIN_USER || '')
+  const envPass = clean(process.env.STAFFBOARD_ADMIN_PASS || process.env.ADMIN_PASS || '')
+  const admins = []
+  if (envUser && envPass) admins.push({ username: envUser, password: envPass, role: 'admin' })
+  if (AUTH_TOKEN) admins.push({ username: 'ali', password: AUTH_TOKEN, role: 'admin' })
+  return admins
+}
+
+function signSession(user) {
+  const payload = {
+    username: user.username,
+    role: user.role || 'admin',
+    exp: Date.now() + 1000 * 60 * 60 * 24,
+  }
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url')
+  return `${body}.${sig}`
+}
+
+function verifySession(token) {
+  try {
+    if (!token || !token.includes('.')) return null
+    const [body, sig] = token.split('.')
+    const expected = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url')
+    if (Buffer.byteLength(sig) !== Buffer.byteLength(expected)) return null
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'))
+    if (payload.exp && Date.now() > payload.exp) return null
+    return payload
+  } catch {
+    return null
+  }
+}
+
+function getBearerToken(req) {
   const auth = req.headers.authorization || ''
   const headerToken = req.headers['x-auth-token'] || ''
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : headerToken
-  if (token !== AUTH_TOKEN) return res.status(401).json({ error: 'Unauthorized' })
-  next()
+  return auth.startsWith('Bearer ') ? auth.slice(7) : headerToken
+}
+
+function requireAuth(req, res, next) {
+  const token = getBearerToken(req)
+  const session = verifySession(token)
+  if (session) {
+    req.user = session
+    return next()
+  }
+  if (AUTH_TOKEN && token === AUTH_TOKEN) {
+    req.user = { username: 'token-admin', role: 'admin' }
+    return next()
+  }
+  return res.status(401).json({ error: 'Unauthorized' })
 }
 
 async function streamToString(stream) {
@@ -50,71 +112,114 @@ async function streamToString(stream) {
   return Buffer.concat(chunks).toString('utf-8')
 }
 
+async function getObjectJson(key, fallback) {
+  try {
+    if (!s3) throw new Error('Spaces is not configured')
+    const out = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
+    const txt = await streamToString(out.Body)
+    return txt ? JSON.parse(txt) : fallback
+  } catch (err) {
+    const name = String(err?.name || err?.Code || '')
+    if (name.includes('NoSuchKey') || err?.$metadata?.httpStatusCode === 404) return fallback
+    throw err
+  }
+}
+
+async function putObjectJson(key, payload) {
+  if (!s3) throw new Error('Spaces is not configured')
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: JSON.stringify(payload, null, 2),
+    ContentType: 'application/json',
+  }))
+}
+
+async function appendHistory(entry) {
+  try {
+    const history = await getObjectJson(HISTORY_KEY, { events: [] })
+    const events = Array.isArray(history.events) ? history.events : []
+    events.unshift(entry)
+    await putObjectJson(HISTORY_KEY, { events: events.slice(0, 500), updatedAt: new Date().toISOString() })
+  } catch (err) {
+    console.warn('Failed to write history:', err.message)
+  }
+}
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,
-    authConfigured: Boolean(AUTH_TOKEN),
+    authConfigured: getAdmins().length > 0 || Boolean(AUTH_TOKEN),
+    admins: getAdmins().map((admin) => admin.username),
     spacesConfigured,
     bucket: BUCKET || null,
     objectKey: KEY || null,
+    historyKey: HISTORY_KEY || null,
     endpoint: ENDPOINT || null,
     region: REGION || null,
   })
 })
 
-app.get('/api/state', requireToken, async (req, res) => {
+app.post('/api/login', (req, res) => {
+  const username = clean(req.body?.username)
+  const password = clean(req.body?.password)
+  const found = getAdmins().find((admin) => admin.username === username && admin.password === password)
+  if (!found) return res.status(401).json({ error: 'Invalid username or password' })
+  const user = { username: found.username, role: found.role || 'admin' }
+  res.json({ token: signSession(user), user })
+})
+
+app.get('/api/me', requireAuth, (req, res) => {
+  res.json({ user: { username: req.user.username, role: req.user.role || 'admin' } })
+})
+
+app.get('/api/state', requireAuth, async (req, res) => {
   try {
     if (!s3) return res.status(500).json({ error: 'Spaces is not configured' })
-    const out = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: KEY }))
-    const txt = await streamToString(out.Body)
-    res.json(JSON.parse(txt))
+    const payload = await getObjectJson(KEY, { state: {}, updatedAt: '' })
+    res.json(payload)
   } catch (err) {
-    const name = String(err?.name || err?.Code || '')
-    if (name.includes('NoSuchKey') || err?.$metadata?.httpStatusCode === 404) {
-      return res.json({ state: {}, updatedAt: '' })
-    }
     console.error(err)
     res.status(500).json({ error: err.message || 'Failed to load state from Spaces.' })
   }
 })
 
-app.put('/api/state', requireToken, async (req, res) => {
+async function saveState(req, res) {
   try {
     if (!s3) return res.status(500).json({ error: 'Spaces is not configured' })
-    const payload = {
-      state: req.body?.state || {},
-      updatedAt: new Date().toISOString(),
-    }
-    await s3.send(new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: KEY,
-      Body: JSON.stringify(payload, null, 2),
-      ContentType: 'application/json',
-    }))
+    const state = req.body?.state || {}
+    const savedAt = new Date().toISOString()
+    const payload = { state, updatedAt: savedAt, updatedBy: req.user?.username || 'unknown' }
+    await putObjectJson(KEY, payload)
+    await appendHistory({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      at: savedAt,
+      user: req.user?.username || 'unknown',
+      action: 'Auto saved board',
+      boardTitle: state.boardTitle || '',
+      boardId: state.currentBoardId || state.boardId || '',
+      weekStartDate: state.weekStartDate || '',
+      selectedDay: state.selectedDay || '',
+      ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+    })
     res.json(payload)
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: err.message || 'Failed to save state to Spaces.' })
   }
-})
+}
 
-app.post('/api/state', requireToken, async (req, res) => {
+app.put('/api/state', requireAuth, saveState)
+app.post('/api/state', requireAuth, saveState)
+
+app.get('/api/history', requireAuth, async (req, res) => {
   try {
     if (!s3) return res.status(500).json({ error: 'Spaces is not configured' })
-    const payload = {
-      state: req.body?.state || {},
-      updatedAt: new Date().toISOString(),
-    }
-    await s3.send(new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: KEY,
-      Body: JSON.stringify(payload, null, 2),
-      ContentType: 'application/json',
-    }))
-    res.json(payload)
+    const history = await getObjectJson(HISTORY_KEY, { events: [] })
+    res.json({ events: Array.isArray(history.events) ? history.events : [] })
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: err.message || 'Failed to save state to Spaces.' })
+    res.status(500).json({ error: err.message || 'Failed to load history.' })
   }
 })
 
@@ -127,7 +232,7 @@ async function start() {
   app.use(vite.middlewares)
   app.listen(PORT, () => {
     console.log(`StaffBoard V6 running on http://localhost:${PORT}`)
-    console.log(`Auth configured: ${Boolean(AUTH_TOKEN)}`)
+    console.log(`Admins configured: ${getAdmins().map((a) => a.username).join(', ') || 'none'}`)
     console.log(`Saving to DigitalOcean Spaces: ${spacesConfigured} ${BUCKET}/${KEY}`)
   })
 }
