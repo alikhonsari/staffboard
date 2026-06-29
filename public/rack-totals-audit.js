@@ -19,16 +19,28 @@
   }
   function looksLikeHeader(line) {
     const low = String(line || '').toLowerCase().trim()
-    return /^(group|decom|speed|other|total|prepped|processed|rack id|material type|type)$/.test(low)
+    return /^(group|decom|speed|other|total|prepped|processed|rack id|rack ids|material type|type|board title|operation board|shift|day|week)$/.test(low)
+  }
+  function looksLikeBoardText(line) {
+    const low = String(line || '').toLowerCase().trim()
+    return low.includes('shift') || low.includes('staffboard') || low.includes('staffing board') || low.includes('week of') || low.includes('admin:') || low.includes('lead:')
+  }
+  function extractCells(line) {
+    return String(line || '').split(/\t|,|;|\s{2,}/).map((x) => x.trim()).filter(Boolean)
+  }
+  function hasRackLikeId(value) {
+    const text = String(value || '').trim()
+    if (!text || looksLikeBoardText(text)) return false
+    const candidates = text.match(/\b[A-Z0-9][A-Z0-9-]{3,}\b/gi) || []
+    return candidates.some((candidate) => /\d/.test(candidate) && candidate.length >= 4)
   }
   function looksLikeRackRow(line) {
     const raw = String(line || '').trim()
-    if (!raw || looksLikeHeader(raw)) return false
-    const parts = raw.split(/\t|,|;|\s{2,}/).map((x) => x.trim()).filter(Boolean)
+    if (!raw || looksLikeHeader(raw) || looksLikeBoardText(raw)) return false
+    const parts = extractCells(raw)
     const hasMaterial = /\b(decom|speed)\b/i.test(raw)
-    const hasId = parts.some((p) => /[a-z]/i.test(p) && /\d/.test(p) && p.length >= 4)
-      || /\b[A-Z0-9][A-Z0-9-]{4,}\b/i.test(raw)
-    return hasId && (hasMaterial || parts.length >= 2)
+    const hasId = parts.some(hasRackLikeId) || hasRackLikeId(raw)
+    return hasId && hasMaterial
   }
   function parseRows(text) {
     return String(text || '')
@@ -95,15 +107,15 @@
   }
   function patch() {
     style()
-    const state = readState()
-    const summary = summarize(dayTexts(state))
+    const s = readState()
+    const summary = summarize(dayTexts(s))
     const card = document.querySelector('[data-opsx-inline]')
     if (!card) return
     const left = card.querySelector('.opsx-grid > div:first-child') || card.querySelector('.opsx-grid')
     if (!left) return
-    left.innerHTML = `${table(summary.counts)}<div class="rack-audit"><div class="rack-audit-title">Where these numbers came from</div>${rowList('Prepped', summary.prepped)}${rowList('Processed', summary.processed)}<div class="rack-audit-empty">Only rows that look like a rack ID plus material/type are counted. Header text or the word SPEED by itself is ignored.</div></div>`
+    left.innerHTML = `${table(summary.counts)}<div class="rack-audit"><div class="rack-audit-title">Where these numbers came from</div>${rowList('Prepped', summary.prepped)}${rowList('Processed', summary.processed)}<div class="rack-audit-empty">Strict mode: a row must include a rack-like ID containing a number and a material word like SPEED or Decom. Board titles such as SPEED Night Shift are ignored.</div></div>`
   }
   document.addEventListener('DOMContentLoaded', patch)
-  setInterval(patch, 2200)
+  setInterval(patch, 1500)
   patch()
 })()
