@@ -1,12 +1,24 @@
 (() => {
   const SHIFT_HOURS = 8
 
-  function pageText() {
-    return String(document.body?.textContent || '').toLowerCase()
+  function text(el) {
+    return String(el?.textContent || '').trim()
+  }
+
+  function activeShiftText() {
+    const parts = []
+    document.querySelectorAll('.board-header .pill, .png-header-card .small').forEach((el) => {
+      const value = text(el)
+      if (value) parts.push(value)
+    })
+    return parts.join(' ').toLowerCase()
   }
 
   function isNightShift() {
-    return /night shift|speed\s*·\s*night|fa lab\s*·\s*night|bodega\s*·\s*night/i.test(pageText())
+    const active = activeShiftText()
+    if (active.includes('night shift') || active.includes('· night')) return true
+    if (active.includes('day shift') || active.includes('· day')) return false
+    return false
   }
 
   function atToday(hour, minute = 0) {
@@ -17,9 +29,9 @@
 
   function shiftWindow(now = new Date()) {
     if (isNightShift()) {
-      let start = atToday(20, 0)
-      let end = atToday(4, 30)
-      let breakStart = atToday(0, 0)
+      const start = atToday(20, 0)
+      const end = atToday(4, 30)
+      const breakStart = atToday(0, 0)
       if (now.getHours() < 12) {
         start.setDate(start.getDate() - 1)
       } else {
@@ -62,7 +74,7 @@
 
   function findOpsCard(label) {
     return Array.from(document.querySelectorAll('.ops')).find((card) => {
-      return String(card.querySelector('.ops-label')?.textContent || '').trim().toLowerCase() === label.toLowerCase()
+      return text(card.querySelector('.ops-label')).toLowerCase() === label.toLowerCase()
     })
   }
 
