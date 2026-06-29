@@ -1,3 +1,4 @@
+@import url('/rack-section-layout.css');
 /* Compact browser-fit layout for the live board */
 .main{padding:14px!important}
 .board-shell{padding:14px!important}
