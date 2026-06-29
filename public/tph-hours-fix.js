@@ -75,6 +75,9 @@
   }
 
   document.addEventListener('DOMContentLoaded', patch)
-  setInterval(patch, 15000)
+  setInterval(patch, 1000)
+  setTimeout(patch, 0)
+  setTimeout(patch, 1000)
+  setTimeout(patch, 3000)
   patch()
 })()
