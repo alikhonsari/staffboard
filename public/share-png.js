@@ -7,366 +7,173 @@
   function readState() {
     try { return JSON.parse(localStorage.getItem(STATE_KEY) || '{}') } catch { return {} }
   }
-
-  function safe(value, fallback = '') {
-    return String(value ?? fallback).trim()
-  }
-
-  function selectedDay(state) {
-    return DAYS.includes(state.selectedDay) ? state.selectedDay : 'Monday'
-  }
-
-  function dayData(state) {
-    return state.weeklyData?.[selectedDay(state)] || { assignments: {} }
-  }
-
-  function builderMap(state) {
+  function safe(value, fallback = '') { return String(value ?? fallback).trim() }
+  function num(value) { const n = Number(value || 0); return Number.isFinite(n) ? n : 0 }
+  function selectedDay(s) { return DAYS.includes(s.selectedDay) ? s.selectedDay : 'Monday' }
+  function dayData(s) { return s.weeklyData?.[selectedDay(s)] || { assignments: {}, opsMetrics: {} } }
+  function builderMap(s) {
     const map = new Map()
-    ;(state.builderPool || []).forEach((b) => { if (b?.id) map.set(b.id, b) })
-    Object.values(state.archivedBuilders || {}).forEach((b) => { if (b?.id && !map.has(b.id)) map.set(b.id, b) })
+    ;(s.builderPool || []).forEach((b) => { if (b?.id) map.set(b.id, b) })
+    Object.values(s.archivedBuilders || {}).forEach((b) => { if (b?.id && !map.has(b.id)) map.set(b.id, b) })
     return map
   }
-
-  function builderName(map, id) {
-    return safe(map.get(id)?.name, id)
-  }
-
-  function profile(map, id) {
-    return map.get(id) || { id, name: id }
-  }
-
-  function isLineLead(builder) {
-    return !!builder?.isLineLead
-  }
-
-  function areaDefs(state) {
-    const defs = Array.isArray(state.areaDefs) ? state.areaDefs.map((a) => a.name || a).filter(Boolean) : []
+  function areaDefs(s) {
+    const defs = Array.isArray(s.areaDefs) ? s.areaDefs.map((a) => a.name || a).filter(Boolean) : []
     return defs.length ? defs : ['Unassigned', 'Rack Prep', 'OB1', 'OB2', 'Speed Lite', 'Speed Line 1', 'Speed Line 2', 'Speed Line 3', 'Shipping', 'EOS Pull Racks', 'Projects', 'Learning', '1:1', 'Media Destruction', 'Network Rack Recovery', 'Network Rack Prep']
   }
-
-  function rows(state) {
-    const bm = builderMap(state)
-    const assignments = dayData(state).assignments || {}
-    return Object.entries(assignments).map(([id, a]) => {
-      const p = profile(bm, id)
+  function activeHeadcount(s, d) {
+    const map = builderMap(s)
+    const manual = num(d.opsMetrics?.manualHeadCount)
+    if (manual) return manual
+    return Object.entries(d.assignments || {}).filter(([id, a]) => STAFFED.has(a.status || 'Present') && !map.get(id)?.isLineLead).length
+  }
+  function tph(s) {
+    const d = dayData(s)
+    const hc = activeHeadcount(s, d)
+    const goal = num(d.opsMetrics?.goalTph || s.goalTph || 7)
+    const elapsed = num(d.opsMetrics?.elapsedHours || d.opsMetrics?.hoursElapsed || s.elapsedHours || 0)
+    const shift = num(d.opsMetrics?.shiftHours || s.shiftHours || 7.5)
+    const remaining = Math.max(0, shift - elapsed)
+    const recovery = num(d.opsMetrics?.racksProcessed)
+    const prep = num(d.opsMetrics?.racksPrepped)
+    const media = num(d.opsMetrics?.mediaProcessed)
+    const total = recovery + prep + media
+    const current = elapsed > 0 && hc > 0 ? total / elapsed / hc : 0
+    const goalUnits = goal * shift * Math.max(hc, 1)
+    const projected = current * shift * Math.max(hc, 1)
+    const gap = projected - goalUnits
+    const pace = goalUnits ? Math.round(total / goalUnits * 100) : 0
+    const status = current >= goal ? 'ON TRACK' : current >= goal * 0.85 ? 'WATCH' : 'BEHIND'
+    return { hc, goal, elapsed, shift, remaining, recovery, prep, media, total, current, projected, gap, pace, status }
+  }
+  function rows(s) {
+    const map = builderMap(s)
+    return Object.entries(dayData(s).assignments || {}).map(([id, a]) => {
+      const b = map.get(id) || { id, name: id }
       return {
         id,
-        name: builderName(bm, id),
-        badge: safe(p.badgeType || 'day').toUpperCase(),
-        isLineLead: isLineLead(p),
+        name: safe(b.name, id),
+        isLineLead: !!b.isLineLead,
         status: safe(a.status || 'Present'),
         area: safe(a.area || 'Unassigned', 'Unassigned'),
         subArea: safe(a.subArea),
         role: safe(a.role),
         clockIn: safe(a.clockInTime),
         clockOut: safe(a.leaveTime),
-        notes: safe(a.builderNotes || a.comment),
       }
     }).sort((a, b) => a.name.localeCompare(b.name))
   }
-
-  function groupedRows(state) {
+  function groupedRows(s) {
     const out = {}
-    areaDefs(state).forEach((area) => { out[area] = [] })
+    areaDefs(s).forEach((a) => { out[a] = [] })
     out['Line Leads'] = []
     out['Not Staffed / Away'] = []
-    rows(state).forEach((row) => {
-      if (row.isLineLead && STAFFED.has(row.status)) out['Line Leads'].push(row)
-      else if (ABSENCE.has(row.status)) out['Not Staffed / Away'].push(row)
-      else {
-        const area = row.area || 'Unassigned'
-        if (!out[area]) out[area] = []
-        out[area].push(row)
-      }
+    rows(s).forEach((r) => {
+      if (r.isLineLead && STAFFED.has(r.status)) out['Line Leads'].push(r)
+      else if (ABSENCE.has(r.status)) out['Not Staffed / Away'].push(r)
+      else { if (!out[r.area]) out[r.area] = []; out[r.area].push(r) }
     })
     return out
   }
-
-  function downloadCanvas(canvas, filename) {
-    const link = document.createElement('a')
-    link.download = filename
-    link.href = canvas.toDataURL('image/png')
-    link.click()
-  }
-
-  function roundRect(ctx, x, y, w, h, r) {
-    const radius = Math.min(r, w / 2, h / 2)
-    ctx.beginPath()
-    ctx.moveTo(x + radius, y)
-    ctx.arcTo(x + w, y, x + w, y + h, radius)
-    ctx.arcTo(x + w, y + h, x, y + h, radius)
-    ctx.arcTo(x, y + h, x, y, radius)
-    ctx.arcTo(x, y, x + w, y, radius)
-    ctx.closePath()
-  }
-
-  function fillRound(ctx, x, y, w, h, r, fill) {
-    ctx.fillStyle = fill
-    roundRect(ctx, x, y, w, h, r)
-    ctx.fill()
-  }
-
-  function strokeRound(ctx, x, y, w, h, r, stroke = '#d8e1ec') {
-    ctx.strokeStyle = stroke
-    roundRect(ctx, x, y, w, h, r)
-    ctx.stroke()
-  }
-
-  function wrapText(ctx, text, maxWidth) {
-    const words = safe(text).split(/\s+/).filter(Boolean)
-    const lines = []
-    let line = ''
-    words.forEach((word) => {
-      const test = line ? `${line} ${word}` : word
-      if (ctx.measureText(test).width <= maxWidth) line = test
-      else {
-        if (line) lines.push(line)
-        line = word
-      }
-    })
-    if (line) lines.push(line)
-    return lines.length ? lines : ['']
-  }
-
-  function drawPill(ctx, x, y, text, fill, color = '#172033') {
-    ctx.font = '700 18px Arial'
-    const w = Math.ceil(ctx.measureText(text).width) + 24
-    fillRound(ctx, x, y, w, 32, 16, fill)
-    ctx.fillStyle = color
-    ctx.fillText(text, x + 12, y + 22)
-    return w
-  }
-
-  function measureBoard(state) {
-    const groups = groupedRows(state)
-    const visibleGroups = Object.entries(groups).filter(([, people]) => people.length)
-    const cardHeights = visibleGroups.map(([area, people]) => 74 + people.length * 44)
-    const cols = 2
-    const colHeights = Array(cols).fill(0)
-    cardHeights.forEach((h) => {
-      const i = colHeights[0] <= colHeights[1] ? 0 : 1
-      colHeights[i] += h + 20
-    })
-    return Math.max(900, 210 + Math.max(...colHeights) + 70)
-  }
-
-  function setupCanvas(width, height) {
+  function setup(w, h) {
     const scale = Math.min(2, window.devicePixelRatio || 1.5)
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(width * scale)
-    canvas.height = Math.round(height * scale)
-    canvas.style.width = `${width}px`
-    canvas.style.height = `${height}px`
-    const ctx = canvas.getContext('2d')
-    ctx.scale(scale, scale)
-    ctx.textBaseline = 'alphabetic'
-    return { canvas, ctx }
+    const c = document.createElement('canvas')
+    c.width = Math.round(w * scale); c.height = Math.round(h * scale)
+    const x = c.getContext('2d'); x.scale(scale, scale); x.textBaseline = 'alphabetic'
+    return { c, x }
   }
-
-  function drawHeader(ctx, state, title, subtitle, width) {
-    const day = selectedDay(state)
-    const board = safe(state.boardTitle || 'StaffBoard')
-    const week = safe(state.weekStartDate || '')
-    const shift = safe(state.boardShift || '')
-    const admin = safe(state.adminName || '')
-    fillRound(ctx, 30, 24, width - 60, 124, 24, '#163b82')
-    const gradient = ctx.createLinearGradient(30, 24, width - 30, 148)
-    gradient.addColorStop(0, '#142e64')
-    gradient.addColorStop(1, '#2563eb')
-    fillRound(ctx, 30, 24, width - 60, 124, 24, gradient)
-    ctx.fillStyle = '#ffffff'
-    ctx.font = '900 36px Arial'
-    ctx.fillText(title, 58, 70)
-    ctx.font = '700 18px Arial'
-    ctx.fillStyle = '#dbeafe'
-    ctx.fillText(subtitle || `${board} · ${day}`, 58, 101)
-    ctx.font = '700 16px Arial'
-    ctx.fillText(`Week ${week} · ${shift}${admin ? ` · Lead: ${admin}` : ''}`, 58, 130)
-    const stamp = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-    ctx.textAlign = 'right'
-    ctx.fillStyle = '#bfdbfe'
-    ctx.fillText(`Generated ${stamp}`, width - 58, 130)
-    ctx.textAlign = 'left'
+  function rr(x, a, b, w, h, r) {
+    x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath()
   }
-
-  function makeBoardCanvas() {
-    const state = readState()
-    const allRows = rows(state)
-    const staffed = allRows.filter((r) => STAFFED.has(r.status)).length
-    const height = measureBoard(state)
-    const width = 1400
-    const { canvas, ctx } = setupCanvas(width, height)
-    ctx.fillStyle = '#f3f7fb'
-    ctx.fillRect(0, 0, width, height)
-    drawHeader(ctx, state, `Staffing Board · ${selectedDay(state)}`, 'Builder share sheet grouped by area', width)
-
-    let pillX = 58
-    const pillY = 166
-    pillX += drawPill(ctx, pillX, pillY, `Total Assigned ${allRows.length}`, '#e0f2fe', '#075985') + 10
-    pillX += drawPill(ctx, pillX, pillY, `Staffed ${staffed}`, '#dcfce7', '#166534') + 10
-    pillX += drawPill(ctx, pillX, pillY, `Areas ${Object.values(groupedRows(state)).filter((g) => g.length).length}`, '#ede9fe', '#5b21b6') + 10
-
-    const groups = Object.entries(groupedRows(state)).filter(([, people]) => people.length)
-    const colW = 650
-    const gap = 30
-    const x0 = 50
-    const yStart = 220
-    const colY = [yStart, yStart]
-
+  function fill(x, a, b, w, h, r, color) { x.fillStyle = color; rr(x, a, b, w, h, r); x.fill() }
+  function stroke(x, a, b, w, h, r, color = '#d8e1ec') { x.strokeStyle = color; rr(x, a, b, w, h, r); x.stroke() }
+  function text(x, t, a, b, font, color = '#172033', align = 'left') { x.font = font; x.fillStyle = color; x.textAlign = align; x.fillText(t, a, b); x.textAlign = 'left' }
+  function pill(x, a, b, label, value, color) {
+    fill(x, a, b, 178, 62, 18, '#ffffff'); stroke(x, a, b, 178, 62, 18, '#d8e1ec')
+    text(x, label, a + 14, b + 22, '900 13px Arial', '#64748b')
+    text(x, value, a + 14, b + 49, '950 26px Arial', color)
+  }
+  function header(x, s, w, subtitle) {
+    const g = x.createLinearGradient(32, 24, w - 32, 150); g.addColorStop(0, '#122a62'); g.addColorStop(1, '#2563eb')
+    fill(x, 32, 24, w - 64, 132, 28, g)
+    text(x, 'StaffBoard Share Report', 62, 72, '950 38px Arial', '#ffffff')
+    text(x, subtitle, 62, 104, '800 20px Arial', '#dbeafe')
+    text(x, `${safe(s.boardTitle || 'Board')} · ${selectedDay(s)} · Week ${safe(s.weekStartDate)} · ${safe(s.boardShift || '')}`, 62, 134, '800 17px Arial', '#bfdbfe')
+    text(x, new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }), w - 62, 134, '800 17px Arial', '#bfdbfe', 'right')
+  }
+  function drawSummary(x, s, y, w) {
+    const m = tph(s)
+    const statusColor = m.status === 'ON TRACK' ? '#166534' : m.status === 'WATCH' ? '#b45309' : '#991b1b'
+    fill(x, 32, y, w - 64, 100, 24, '#ffffff'); stroke(x, 32, y, w - 64, 100, 24, '#d8e1ec')
+    text(x, 'Manager snapshot', 58, y + 30, '950 16px Arial', '#64748b')
+    text(x, m.status, 58, y + 70, '950 34px Arial', statusColor)
+    const start = 285
+    pill(x, start, y + 18, 'Current TPH/HC', m.current.toFixed(1), '#172033')
+    pill(x, start + 192, y + 18, 'Goal TPH/HC', m.goal.toFixed(1), '#172033')
+    pill(x, start + 384, y + 18, 'Pace', `${m.pace}%`, statusColor)
+    pill(x, start + 576, y + 18, 'Projected Gap', `${m.gap >= 0 ? '+' : ''}${Math.round(m.gap)}`, statusColor)
+    pill(x, start + 768, y + 18, 'Headcount', String(m.hc), '#172033')
+  }
+  function boardHeight(s) {
+    const groups = Object.values(groupedRows(s)).filter((g) => g.length)
+    const cols = [0, 0, 0]
+    groups.forEach((people) => { const i = cols.indexOf(Math.min(...cols)); cols[i] += 76 + people.length * 42 + 18 })
+    return Math.max(900, 310 + Math.max(...cols) + 70)
+  }
+  function boardCanvas() {
+    const s = readState(); const w = 1600; const h = boardHeight(s); const { c, x } = setup(w, h)
+    x.fillStyle = '#f3f7fb'; x.fillRect(0, 0, w, h); header(x, s, w, 'Board by area for builders'); drawSummary(x, s, 176, w)
+    const groups = Object.entries(groupedRows(s)).filter(([, p]) => p.length)
+    const colW = 492, gap = 22, startX = 42, startY = 306, colY = [startY, startY, startY]
     groups.forEach(([area, people]) => {
-      const col = colY[0] <= colY[1] ? 0 : 1
-      const x = x0 + col * (colW + gap)
-      const y = colY[col]
-      const h = 74 + people.length * 44
-      fillRound(ctx, x, y, colW, h, 20, '#ffffff')
-      strokeRound(ctx, x, y, colW, h, 20, '#d8e1ec')
-      ctx.fillStyle = '#172033'
-      ctx.font = '900 24px Arial'
-      ctx.fillText(area, x + 22, y + 36)
-      ctx.fillStyle = '#2563eb'
-      ctx.font = '900 20px Arial'
-      ctx.fillText(String(people.length), x + colW - 48, y + 36)
-      ctx.strokeStyle = '#e5edf6'
-      ctx.beginPath(); ctx.moveTo(x + 20, y + 54); ctx.lineTo(x + colW - 20, y + 54); ctx.stroke()
-      people.forEach((p, index) => {
-        const yy = y + 84 + index * 44
-        ctx.fillStyle = '#0f172a'
-        ctx.font = '800 20px Arial'
-        ctx.fillText(p.name, x + 22, yy)
-        const details = [p.status, p.subArea, p.role, p.clockIn ? `In ${p.clockIn}` : ''].filter(Boolean).join(' · ')
-        ctx.fillStyle = '#64748b'
-        ctx.font = '700 15px Arial'
-        ctx.fillText(details || '—', x + 310, yy)
+      const col = colY.indexOf(Math.min(...colY)), a = startX + col * (colW + gap), b = colY[col], h2 = 70 + people.length * 42
+      fill(x, a, b, colW, h2, 22, '#ffffff'); stroke(x, a, b, colW, h2, 22)
+      text(x, area, a + 20, b + 34, '950 23px Arial', '#172033'); text(x, String(people.length), a + colW - 28, b + 34, '950 23px Arial', '#2563eb', 'right')
+      x.strokeStyle = '#e5edf6'; x.beginPath(); x.moveTo(a + 18, b + 52); x.lineTo(a + colW - 18, b + 52); x.stroke()
+      people.forEach((p, i) => {
+        const yy = b + 82 + i * 42
+        text(x, p.name, a + 20, yy, '900 18px Arial')
+        const detail = [p.status, p.subArea, p.role].filter(Boolean).join(' · ')
+        text(x, detail || '—', a + 245, yy, '750 14px Arial', '#64748b')
       })
-      colY[col] += h + 20
+      colY[col] += h2 + 18
     })
-
-    ctx.fillStyle = '#64748b'
-    ctx.font = '700 15px Arial'
-    ctx.fillText('StaffBoard share PNG · Current selected day only · Notes/comments hidden for privacy', 50, height - 34)
-    return canvas
+    text(x, 'Current selected day only · Notes/comments hidden for privacy', 42, h - 34, '800 15px Arial', '#64748b')
+    return c
   }
-
-  function makeBuilderListCanvas() {
-    const state = readState()
-    const all = rows(state)
-    const width = 1400
-    const rowH = 54
-    const height = Math.max(900, 250 + all.length * rowH + 80)
-    const { canvas, ctx } = setupCanvas(width, height)
-    ctx.fillStyle = '#f3f7fb'
-    ctx.fillRect(0, 0, width, height)
-    drawHeader(ctx, state, `Builder Assignments · ${selectedDay(state)}`, 'Alphabetic list for sharing with builders', width)
-
-    const y0 = 205
-    fillRound(ctx, 50, y0 - 42, width - 100, 44, 14, '#e8eef7')
-    ctx.fillStyle = '#53647c'
-    ctx.font = '900 14px Arial'
-    ctx.fillText('BUILDER', 74, y0 - 14)
-    ctx.fillText('STATUS', 430, y0 - 14)
-    ctx.fillText('AREA', 585, y0 - 14)
-    ctx.fillText('ROLE / SUB AREA', 860, y0 - 14)
-    ctx.fillText('TIME', 1150, y0 - 14)
-
-    if (!all.length) {
-      ctx.fillStyle = '#64748b'
-      ctx.font = '800 24px Arial'
-      ctx.fillText('No builders assigned for this day.', 74, y0 + 60)
-    }
-
+  function builderCanvas() {
+    const s = readState(); const all = rows(s); const w = 1600; const h = Math.max(900, 315 + all.length * 52 + 70); const { c, x } = setup(w, h)
+    x.fillStyle = '#f3f7fb'; x.fillRect(0, 0, w, h); header(x, s, w, 'Alphabetic builder assignment list'); drawSummary(x, s, 176, w)
+    const y0 = 325
+    fill(x, 42, y0 - 44, w - 84, 44, 16, '#e8eef7')
+    ;[['BUILDER',70],['STATUS',430],['AREA',590],['ROLE / SUB AREA',880],['TIME',1250]].forEach(([t, a]) => text(x, t, a, y0 - 15, '950 14px Arial', '#53647c'))
     all.forEach((p, i) => {
-      const y = y0 + i * rowH
-      fillRound(ctx, 50, y, width - 100, 44, 12, i % 2 === 0 ? '#ffffff' : '#f8fbff')
-      strokeRound(ctx, 50, y, width - 100, 44, 12, '#e5edf6')
-      ctx.fillStyle = '#172033'
-      ctx.font = '900 19px Arial'
-      ctx.fillText(p.name, 74, y + 29)
-      ctx.font = '800 15px Arial'
-      ctx.fillStyle = STAFFED.has(p.status) ? '#166534' : ABSENCE.has(p.status) ? '#9a3412' : '#334155'
-      ctx.fillText(p.status || 'Present', 430, y + 28)
-      ctx.fillStyle = '#172033'
-      ctx.font = '800 16px Arial'
-      ctx.fillText(p.isLineLead && STAFFED.has(p.status) ? 'Line Leads' : p.area || 'Unassigned', 585, y + 28)
-      ctx.fillStyle = '#475569'
-      ctx.font = '700 15px Arial'
-      const role = [p.role, p.subArea].filter(Boolean).join(' · ')
-      ctx.fillText(role || '—', 860, y + 28)
-      const time = [p.clockIn ? `In ${p.clockIn}` : '', p.clockOut ? `Out ${p.clockOut}` : ''].filter(Boolean).join(' · ')
-      ctx.fillText(time || '—', 1150, y + 28)
+      const y = y0 + i * 52
+      fill(x, 42, y, w - 84, 42, 14, i % 2 ? '#f8fbff' : '#ffffff'); stroke(x, 42, y, w - 84, 42, 14, '#e5edf6')
+      text(x, p.name, 70, y + 27, '950 18px Arial')
+      text(x, p.status, 430, y + 27, '900 15px Arial', STAFFED.has(p.status) ? '#166534' : '#9a3412')
+      text(x, p.isLineLead && STAFFED.has(p.status) ? 'Line Leads' : p.area || 'Unassigned', 590, y + 27, '900 16px Arial')
+      text(x, [p.role, p.subArea].filter(Boolean).join(' · ') || '—', 880, y + 27, '750 15px Arial', '#64748b')
+      text(x, [p.clockIn ? `In ${p.clockIn}` : '', p.clockOut ? `Out ${p.clockOut}` : ''].filter(Boolean).join(' · ') || '—', 1250, y + 27, '750 15px Arial', '#64748b')
     })
-
-    ctx.fillStyle = '#64748b'
-    ctx.font = '700 15px Arial'
-    ctx.fillText('StaffBoard share PNG · Current selected day only · Notes/comments hidden for privacy', 50, height - 34)
-    return canvas
+    if (!all.length) text(x, 'No builders assigned for this day.', 70, y0 + 70, '900 26px Arial', '#64748b')
+    text(x, 'Current selected day only · Notes/comments hidden for privacy', 42, h - 34, '800 15px Arial', '#64748b')
+    return c
   }
-
-  function filename(prefix) {
-    const state = readState()
-    const day = selectedDay(state).toLowerCase()
-    const week = safe(state.weekStartDate || 'week').replaceAll('-', '')
-    return `${prefix}-${day}-${week}.png`
+  function dl(canvas, name) { const a = document.createElement('a'); a.download = name; a.href = canvas.toDataURL('image/png'); a.click() }
+  function fname(prefix) { const s = readState(); return `${prefix}-${selectedDay(s).toLowerCase()}-${safe(s.weekStartDate || 'week').replaceAll('-', '')}.png` }
+  function openModal() {
+    document.querySelectorAll('[data-sharepng-modal]').forEach((e) => e.remove())
+    const m = document.createElement('div'); m.dataset.sharepngModal = 'true'; m.className = 'sharepng-backdrop'
+    m.innerHTML = `<div class="sharepng-modal"><div class="sharepng-head"><div><h2>Share Staffing PNG</h2><div class="sharepng-muted">Clean builder-facing PNG reports with manager TPH snapshot.</div></div><button class="sharepng-btn light" data-close-sharepng>Close</button></div><div class="sharepng-grid"><button class="sharepng-card" data-board><strong>Board by Area PNG</strong><span>Best to post for the team: each area with staffed builders.</span></button><button class="sharepng-card" data-list><strong>Builder List PNG</strong><span>Alphabetical list so every builder finds their assignment fast.</span></button></div><div class="sharepng-note">Exports the selected day only. Notes/comments are not included.</div></div>`
+    document.body.appendChild(m); m.querySelector('[data-close-sharepng]').onclick = () => m.remove(); m.querySelector('[data-board]').onclick = () => dl(boardCanvas(), fname('staffing-board-share')); m.querySelector('[data-list]').onclick = () => dl(builderCanvas(), fname('builder-assignments-share')); m.addEventListener('click', (e) => { if (e.target === m) m.remove() })
   }
-
-  function downloadBoard() {
-    downloadCanvas(makeBoardCanvas(), filename('staffing-board-share'))
-  }
-
-  function downloadBuilders() {
-    downloadCanvas(makeBuilderListCanvas(), filename('builder-assignments-share'))
-  }
-
-  function openShareModal() {
-    document.querySelectorAll('[data-sharepng-modal]').forEach((x) => x.remove())
-    const modal = document.createElement('div')
-    modal.dataset.sharepngModal = 'true'
-    modal.className = 'sharepng-backdrop'
-    modal.innerHTML = `
-      <div class="sharepng-modal">
-        <div class="sharepng-head">
-          <div><h2>Share Staffing PNG</h2><div class="sharepng-muted">Download clean PNGs builders can read on their phone.</div></div>
-          <button class="sharepng-btn light" data-close-sharepng>Close</button>
-        </div>
-        <div class="sharepng-grid">
-          <button class="sharepng-card" data-download-board><strong>Board by Area PNG</strong><span>Best for showing each area and everyone staffed there.</span></button>
-          <button class="sharepng-card" data-download-builders><strong>Builder List PNG</strong><span>Alphabetic list so each person can quickly find themselves.</span></button>
-        </div>
-        <div class="sharepng-note">Exports only the selected day. Notes/comments are not included.</div>
-      </div>`
-    document.body.appendChild(modal)
-    modal.querySelector('[data-close-sharepng]').onclick = () => modal.remove()
-    modal.querySelector('[data-download-board]').onclick = downloadBoard
-    modal.querySelector('[data-download-builders]').onclick = downloadBuilders
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove() })
-  }
-
-  function addStyle() {
+  function style() {
     if (document.getElementById('share-png-style')) return
-    const style = document.createElement('style')
-    style.id = 'share-png-style'
-    style.textContent = `
-      .sharepng-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99982;display:flex;align-items:center;justify-content:center;padding:22px}.sharepng-modal{width:min(760px,95vw);background:white;border:1px solid #d8e1ec;border-radius:22px;box-shadow:0 28px 80px rgba(15,23,42,.35);overflow:hidden}.sharepng-head{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:20px;border-bottom:1px solid #e5edf6}.sharepng-head h2{margin:0;font-size:24px}.sharepng-muted,.sharepng-note{color:#66748a;font-size:14px;font-weight:700}.sharepng-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:20px}.sharepng-card{border:1px solid #d8e1ec;background:linear-gradient(180deg,#fff,#f8fbff);border-radius:18px;padding:18px;text-align:left;cursor:pointer;min-height:150px}.sharepng-card strong{display:block;font-size:20px;color:#172033;margin-bottom:8px}.sharepng-card span{color:#66748a;font-size:14px;font-weight:700;line-height:1.45}.sharepng-card:hover{border-color:#2563eb;box-shadow:0 14px 34px rgba(37,99,235,.14)}.sharepng-btn{border:0;border-radius:12px;padding:10px 14px;font-weight:900;cursor:pointer}.sharepng-btn.light{background:#e8eef7;color:#172033}.sharepng-note{padding:0 20px 20px}body[data-theme="dark"] .sharepng-modal{background:#22344e;color:#f4f8ff;border-color:#536986}body[data-theme="dark"] .sharepng-head{border-color:#536986}body[data-theme="dark"] .sharepng-card{background:#263852;border-color:#536986}body[data-theme="dark"] .sharepng-card strong{color:#fff}body[data-theme="dark"] .sharepng-muted,body[data-theme="dark"] .sharepng-note,body[data-theme="dark"] .sharepng-card span{color:#c8d6eb}@media(max-width:700px){.sharepng-grid{grid-template-columns:1fr}}
-    `
-    document.head.appendChild(style)
+    const st = document.createElement('style'); st.id = 'share-png-style'; st.textContent = `.sharepng-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99982;display:flex;align-items:center;justify-content:center;padding:22px}.sharepng-modal{width:min(760px,95vw);background:white;border:1px solid #d8e1ec;border-radius:22px;box-shadow:0 28px 80px rgba(15,23,42,.35);overflow:hidden}.sharepng-head{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:20px;border-bottom:1px solid #e5edf6}.sharepng-head h2{margin:0;font-size:24px}.sharepng-muted,.sharepng-note{color:#66748a;font-size:14px;font-weight:700}.sharepng-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:20px}.sharepng-card{border:1px solid #d8e1ec;background:linear-gradient(180deg,#fff,#f8fbff);border-radius:18px;padding:18px;text-align:left;cursor:pointer;min-height:150px}.sharepng-card strong{display:block;font-size:20px;color:#172033;margin-bottom:8px}.sharepng-card span{color:#66748a;font-size:14px;font-weight:700;line-height:1.45}.sharepng-card:hover{border-color:#2563eb;box-shadow:0 14px 34px rgba(37,99,235,.14)}.sharepng-btn{border:0;border-radius:12px;padding:10px 14px;font-weight:900;cursor:pointer}.sharepng-btn.light{background:#e8eef7;color:#172033}.sharepng-note{padding:0 20px 20px}body[data-theme="dark"] .sharepng-modal{background:#22344e;color:#f4f8ff;border-color:#536986}body[data-theme="dark"] .sharepng-head{border-color:#536986}body[data-theme="dark"] .sharepng-card{background:#263852;border-color:#536986}body[data-theme="dark"] .sharepng-card strong{color:#fff}body[data-theme="dark"] .sharepng-muted,body[data-theme="dark"] .sharepng-note,body[data-theme="dark"] .sharepng-card span{color:#c8d6eb}@media(max-width:700px){.sharepng-grid{grid-template-columns:1fr}}`; document.head.appendChild(st)
   }
-
-  function ensureButtons() {
-    addStyle()
-    const navs = document.querySelectorAll('.view-tab-grid, .app-nav-tabs, .sidebar-tabs')
-    navs.forEach((nav) => {
-      if (nav.querySelector('[data-sharepng-button]')) return
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.dataset.sharepngButton = 'true'
-      btn.className = nav.classList.contains('view-tab-grid') ? 'secondary sidebar-tab' : 'secondary nav-tab'
-      btn.textContent = 'Share PNG'
-      btn.addEventListener('click', openShareModal)
-      nav.appendChild(btn)
-    })
+  function buttons() {
+    style(); document.querySelectorAll('.view-tab-grid,.app-nav-tabs,.sidebar-tabs').forEach((nav) => { if (nav.querySelector('[data-sharepng-button]')) return; const b = document.createElement('button'); b.type = 'button'; b.dataset.sharepngButton = 'true'; b.className = nav.classList.contains('view-tab-grid') ? 'secondary sidebar-tab' : 'secondary nav-tab'; b.textContent = 'Share PNG'; b.onclick = openModal; nav.appendChild(b) })
   }
-
-  addStyle()
-  document.addEventListener('DOMContentLoaded', ensureButtons)
-  setInterval(ensureButtons, 2000)
-  ensureButtons()
+  document.addEventListener('DOMContentLoaded', buttons); setInterval(buttons, 2000); buttons()
 })()
