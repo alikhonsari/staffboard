@@ -31,11 +31,10 @@
   }
 
   function workload(d) {
-    const processed = num(d.opsMetrics?.racksProcessed)
-    const prepped = num(d.opsMetrics?.racksPrepped)
+    const recovery = num(d.opsMetrics?.racksProcessed)
+    const prep = num(d.opsMetrics?.racksPrepped)
     const media = num(d.opsMetrics?.mediaProcessed)
-    const totalMedia = num(d.opsMetrics?.totalMediaCount)
-    return { processed, prepped, media, totalMedia, total: processed + prepped + media }
+    return { recovery, prep, media, total: recovery + prep + media }
   }
 
   function managerMetrics(s) {
@@ -55,12 +54,17 @@
     const pacePct = goalTotal ? Math.round((w.total / goalTotal) * 100) : 0
     const status = currentTph >= goal ? 'On Track' : currentTph >= goal * 0.85 ? 'Watch' : 'Behind'
     const tone = status === 'On Track' ? 'good' : status === 'Watch' ? 'warn' : 'bad'
-    const plain = status === 'On Track'
-      ? 'Current pace is meeting the goal.'
+    const summary = status === 'On Track'
+      ? 'Current pace is meeting or beating the target.'
       : status === 'Watch'
-        ? 'Close to goal. Watch staffing, barriers, and next quarter output.'
-        : 'Below goal. Need either more output, more staffing, or barrier removal.'
-    return { goal, elapsed, shift, remaining, hc, ...w, currentTph, requiredTph, projected, goalTotal, gap, pacePct, status, tone, plain }
+        ? 'Close to target. Watch next quarter output and barriers.'
+        : 'Below target. Remove barriers, increase output, or adjust staffing.'
+    const ask = status === 'On Track'
+      ? 'Keep staffing stable and monitor for new blockers.'
+      : status === 'Watch'
+        ? 'Check misses, balance labor, and confirm next-hour output plan.'
+        : 'Escalate blockers, rebalance staffing, and confirm recovery plan.'
+    return { goal, elapsed, shift, remaining, hc, ...w, currentTph, requiredTph, projected, goalTotal, gap, pacePct, status, tone, summary, ask }
   }
 
   function fmt(value, digits = 1) {
@@ -71,51 +75,99 @@
     return Math.round(Number(value || 0)).toLocaleString()
   }
 
-  function cardHtml(s) {
+  function statusClass(tone) {
+    return `manager-report-${tone}`
+  }
+
+  function reportHtml(s) {
     const m = managerMetrics(s)
-    return `<div class="manager-tph-simple manager-tph-${m.tone}" data-manager-tph="true">
-      <div class="manager-tph-top">
+    return `<div class="manager-report ${statusClass(m.tone)}">
+      <div class="manager-report-hero">
         <div>
-          <div class="manager-tph-kicker">Manager TPH Summary</div>
-          <div class="manager-tph-title">${m.status}</div>
-          <div class="manager-tph-note">${m.plain}</div>
+          <div class="manager-report-kicker">Manager Report</div>
+          <h2>${m.status}</h2>
+          <p>${m.summary}</p>
         </div>
-        <div class="manager-tph-score"><span>Current</span><strong>${fmt(m.currentTph)}</strong><small>TPH / HC</small></div>
+        <div class="manager-report-current">
+          <span>Current</span>
+          <strong>${fmt(m.currentTph)}</strong>
+          <small>TPH / HC</small>
+        </div>
       </div>
-      <div class="manager-tph-grid">
+
+      <div class="manager-report-grid main">
         <div><span>Goal</span><strong>${fmt(m.goal)}</strong><small>TPH / HC</small></div>
-        <div><span>Need Now</span><strong>${fmt(m.requiredTph)}</strong><small>TPH / HC remaining</small></div>
-        <div><span>Headcount</span><strong>${whole(m.hc)}</strong><small>active / manual</small></div>
+        <div><span>Need Now</span><strong>${fmt(m.requiredTph)}</strong><small>TPH / HC rest of shift</small></div>
         <div><span>Pace</span><strong>${m.pacePct}%</strong><small>of full-day goal</small></div>
-        <div><span>Projected</span><strong>${whole(m.projected)}</strong><small>units by EOS</small></div>
-        <div><span>Gap</span><strong>${m.gap >= 0 ? '+' : ''}${whole(m.gap)}</strong><small>vs goal</small></div>
+        <div><span>Projected Gap</span><strong>${m.gap >= 0 ? '+' : ''}${whole(m.gap)}</strong><small>units vs goal</small></div>
+        <div><span>Headcount</span><strong>${whole(m.hc)}</strong><small>active / manual</small></div>
+        <div><span>Hours Left</span><strong>${fmt(m.remaining)}</strong><small>${fmt(m.elapsed)}h elapsed</small></div>
       </div>
-      <div class="manager-tph-line"><span style="width:${Math.max(0, Math.min(100, m.pacePct))}%"></span></div>
-      <div class="manager-tph-breakdown">Recovery ${whole(m.processed)} · Prep ${whole(m.prepped)} · Media ${whole(m.media)} · Total ${whole(m.total)} · ${fmt(m.elapsed)}h elapsed / ${fmt(m.remaining)}h left</div>
+
+      <div class="manager-report-bar"><span style="width:${Math.max(0, Math.min(100, m.pacePct))}%"></span></div>
+
+      <div class="manager-report-grid small">
+        <div><span>Recovery</span><strong>${whole(m.recovery)}</strong></div>
+        <div><span>Prep</span><strong>${whole(m.prep)}</strong></div>
+        <div><span>Media</span><strong>${whole(m.media)}</strong></div>
+        <div><span>Total Work</span><strong>${whole(m.total)}</strong></div>
+        <div><span>Projected EOS</span><strong>${whole(m.projected)}</strong></div>
+        <div><span>Goal Units</span><strong>${whole(m.goalTotal)}</strong></div>
+      </div>
+
+      <div class="manager-report-action">
+        <span>Recommended action</span>
+        <strong>${m.ask}</strong>
+      </div>
     </div>`
   }
 
   function addStyle() {
-    if (document.getElementById('manager-tph-style')) return
+    if (document.getElementById('manager-report-style')) return
     const style = document.createElement('style')
-    style.id = 'manager-tph-style'
+    style.id = 'manager-report-style'
     style.textContent = `
-      .manager-tph-simple{margin:0 0 14px;padding:16px;border-radius:20px;border:1px solid #d8e1ec;background:linear-gradient(180deg,#fff,#f8fbff);box-shadow:0 10px 26px rgba(15,23,42,.06)}.manager-tph-top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:12px}.manager-tph-kicker{text-transform:uppercase;letter-spacing:.06em;font-size:.74rem;font-weight:950;color:#64748b}.manager-tph-title{font-size:1.6rem;font-weight:950;color:#172033;line-height:1.05;margin-top:3px}.manager-tph-note{font-size:.9rem;color:#64748b;font-weight:750;margin-top:5px}.manager-tph-score{min-width:118px;text-align:center;border:1px solid #d8e1ec;background:#fff;border-radius:16px;padding:10px}.manager-tph-score span,.manager-tph-grid span{display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.055em;font-weight:950;color:#64748b}.manager-tph-score strong{display:block;font-size:2rem;line-height:1;color:#172033}.manager-tph-score small,.manager-tph-grid small{display:block;font-size:.72rem;color:#64748b;font-weight:800;margin-top:4px}.manager-tph-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px}.manager-tph-grid div{border:1px solid #e5edf6;background:#fff;border-radius:14px;padding:10px}.manager-tph-grid strong{display:block;font-size:1.35rem;line-height:1.05;color:#172033;margin-top:4px}.manager-tph-line{height:10px;border-radius:999px;background:#e8eef7;overflow:hidden;margin:12px 0 8px}.manager-tph-line span{display:block;height:100%;border-radius:999px;background:#2563eb}.manager-tph-breakdown{font-size:.82rem;color:#64748b;font-weight:800}.manager-tph-good{border-color:#bbf7d0;background:linear-gradient(180deg,#f0fdf4,#fff)}.manager-tph-good .manager-tph-title{color:#166534}.manager-tph-good .manager-tph-line span{background:#16a34a}.manager-tph-warn{border-color:#fed7aa;background:linear-gradient(180deg,#fff7ed,#fff)}.manager-tph-warn .manager-tph-title{color:#9a3412}.manager-tph-warn .manager-tph-line span{background:#f59e0b}.manager-tph-bad{border-color:#fecaca;background:linear-gradient(180deg,#fff1f2,#fff)}.manager-tph-bad .manager-tph-title{color:#991b1b}.manager-tph-bad .manager-tph-line span{background:#ef4444}body[data-theme="dark"] .manager-tph-simple,body[data-theme="dark"] .manager-tph-score,body[data-theme="dark"] .manager-tph-grid div{background:#263852;color:#fff;border-color:#536986}body[data-theme="dark"] .manager-tph-title,body[data-theme="dark"] .manager-tph-score strong,body[data-theme="dark"] .manager-tph-grid strong{color:#fff}body[data-theme="dark"] .manager-tph-kicker,body[data-theme="dark"] .manager-tph-note,body[data-theme="dark"] .manager-tph-breakdown,body[data-theme="dark"] .manager-tph-score span,body[data-theme="dark"] .manager-tph-grid span,body[data-theme="dark"] .manager-tph-score small,body[data-theme="dark"] .manager-tph-grid small{color:#c8d6eb}@media(max-width:1000px){.manager-tph-grid{grid-template-columns:repeat(3,1fr)}}@media(max-width:640px){.manager-tph-top{display:block}.manager-tph-score{margin-top:10px}.manager-tph-grid{grid-template-columns:repeat(2,1fr)}}
+      .manager-report-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99983;display:flex;align-items:center;justify-content:center;padding:24px}.manager-report-modal{width:min(1120px,96vw);max-height:90vh;overflow:auto;background:#fff;border:1px solid #d8e1ec;border-radius:24px;box-shadow:0 28px 80px rgba(15,23,42,.35)}.manager-report-head{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;gap:14px;align-items:center;padding:18px 20px;background:rgba(255,255,255,.96);border-bottom:1px solid #e5edf6;backdrop-filter:blur(12px)}.manager-report-head h2{margin:0;font-size:24px}.manager-report-muted{color:#64748b;font-size:13px;font-weight:750}.manager-report-close{border:0;background:#e8eef7;color:#172033;border-radius:12px;padding:10px 14px;font-weight:900;cursor:pointer}.manager-report-body{padding:18px 20px;background:linear-gradient(180deg,#f8fafc,#fff)}.manager-report{border:1px solid #d8e1ec;border-radius:24px;background:#fff;padding:18px;box-shadow:0 10px 26px rgba(15,23,42,.06)}.manager-report-hero{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}.manager-report-kicker{text-transform:uppercase;letter-spacing:.07em;font-size:.78rem;font-weight:950;color:#64748b}.manager-report h2{margin:4px 0 4px;font-size:42px;line-height:1;letter-spacing:-.04em}.manager-report p{margin:0;color:#64748b;font-weight:750}.manager-report-current{min-width:160px;text-align:center;border:1px solid #e5edf6;background:#f8fafc;border-radius:20px;padding:14px}.manager-report-current span,.manager-report-grid span,.manager-report-action span{display:block;text-transform:uppercase;letter-spacing:.055em;font-size:.72rem;color:#64748b;font-weight:950}.manager-report-current strong{display:block;font-size:44px;line-height:1;margin-top:4px}.manager-report-current small,.manager-report-grid small{display:block;color:#64748b;font-size:.75rem;font-weight:800;margin-top:4px}.manager-report-grid{display:grid;gap:10px}.manager-report-grid.main{grid-template-columns:repeat(3,minmax(0,1fr))}.manager-report-grid.small{grid-template-columns:repeat(6,minmax(0,1fr));margin-top:12px}.manager-report-grid div{background:#f8fafc;border:1px solid #e5edf6;border-radius:16px;padding:12px}.manager-report-grid strong{display:block;font-size:27px;line-height:1.05;margin-top:5px;color:#172033}.manager-report-bar{height:13px;border-radius:999px;background:#e8eef7;overflow:hidden;margin:14px 0}.manager-report-bar span{display:block;height:100%;border-radius:999px;background:#2563eb}.manager-report-action{margin-top:14px;border:1px solid #d8e1ec;background:#f8fafc;border-radius:18px;padding:14px}.manager-report-action strong{display:block;margin-top:6px;font-size:18px}.manager-report-good{border-color:#bbf7d0;background:linear-gradient(180deg,#f0fdf4,#fff)}.manager-report-good h2{color:#166534}.manager-report-good .manager-report-bar span{background:#16a34a}.manager-report-warn{border-color:#fed7aa;background:linear-gradient(180deg,#fff7ed,#fff)}.manager-report-warn h2{color:#9a3412}.manager-report-warn .manager-report-bar span{background:#f59e0b}.manager-report-bad{border-color:#fecaca;background:linear-gradient(180deg,#fff1f2,#fff)}.manager-report-bad h2{color:#991b1b}.manager-report-bad .manager-report-bar span{background:#ef4444}body[data-theme="dark"] .manager-report-modal,body[data-theme="dark"] .manager-report-head,body[data-theme="dark"] .manager-report,body[data-theme="dark"] .manager-report-current,body[data-theme="dark"] .manager-report-grid div,body[data-theme="dark"] .manager-report-action{background:#263852;color:#fff;border-color:#536986}body[data-theme="dark"] .manager-report-body{background:#22344e}body[data-theme="dark"] .manager-report h2,body[data-theme="dark"] .manager-report-current strong,body[data-theme="dark"] .manager-report-grid strong,body[data-theme="dark"] .manager-report-action strong{color:#fff}body[data-theme="dark"] .manager-report-muted,body[data-theme="dark"] .manager-report p,body[data-theme="dark"] .manager-report-current span,body[data-theme="dark"] .manager-report-grid span,body[data-theme="dark"] .manager-report-action span,body[data-theme="dark"] .manager-report-current small,body[data-theme="dark"] .manager-report-grid small{color:#c8d6eb}@media(max-width:900px){.manager-report-hero{display:block}.manager-report-current{margin-top:12px}.manager-report-grid.main{grid-template-columns:repeat(2,1fr)}.manager-report-grid.small{grid-template-columns:repeat(2,1fr)}}
     `
     document.head.appendChild(style)
   }
 
-  function inject() {
+  function openReport() {
     addStyle()
-    document.querySelectorAll('[data-manager-tph]').forEach((x) => x.remove())
-    const headings = Array.from(document.querySelectorAll('.table-kicker, h2, .title'))
-    const target = headings.find((el) => /TPH Reporting|TPH/i.test(el.textContent || ''))
-    const card = target?.closest('.card, .ops, .summary-card-block, .dashboard-card, .board-shell')
-    if (card) card.insertAdjacentHTML('beforebegin', cardHtml(state()))
+    document.querySelectorAll('[data-manager-report-modal]').forEach((x) => x.remove())
+    const s = state()
+    const modal = document.createElement('div')
+    modal.className = 'manager-report-backdrop'
+    modal.dataset.managerReportModal = 'true'
+    modal.innerHTML = `<div class="manager-report-modal">
+      <div class="manager-report-head">
+        <div><h2>Manager Report</h2><div class="manager-report-muted">${s.boardTitle || 'Board'} · ${dayName(s)} · Week ${s.weekStartDate || ''}</div></div>
+        <button class="manager-report-close" type="button">Close</button>
+      </div>
+      <div class="manager-report-body">${reportHtml(s)}</div>
+    </div>`
+    document.body.appendChild(modal)
+    modal.querySelector('.manager-report-close').onclick = () => modal.remove()
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove() })
   }
 
-  document.addEventListener('DOMContentLoaded', inject)
-  window.addEventListener('staffboard-builder-enhancements-updated', () => setTimeout(inject, 0))
-  setInterval(inject, 2500)
-  inject()
+  function ensureButton() {
+    addStyle()
+    const navs = document.querySelectorAll('.view-tab-grid, .app-nav-tabs, .sidebar-tabs')
+    navs.forEach((nav) => {
+      if (nav.querySelector('[data-manager-report-button]')) return
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.dataset.managerReportButton = 'true'
+      btn.className = nav.classList.contains('view-tab-grid') ? 'secondary sidebar-tab' : 'secondary nav-tab'
+      btn.textContent = 'Manager Report'
+      btn.addEventListener('click', openReport)
+      nav.appendChild(btn)
+    })
+  }
+
+  addStyle()
+  document.addEventListener('DOMContentLoaded', ensureButton)
+  setInterval(ensureButton, 1500)
+  ensureButton()
 })()
