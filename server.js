@@ -22,8 +22,10 @@ const ENDPOINT = process.env.SPACES_ENDPOINT || ''
 const REGION = process.env.SPACES_REGION || 'us-east-1'
 const ACCESS_KEY = process.env.SPACES_KEY || ''
 const SECRET_KEY = process.env.SPACES_SECRET || ''
+const PRESENCE_TTL_MS = 45_000
 
 const spacesConfigured = Boolean(BUCKET && ENDPOINT && ACCESS_KEY && SECRET_KEY)
+const presenceSessions = new Map()
 const s3 = spacesConfigured ? new S3Client({
   endpoint: ENDPOINT,
   region: REGION,
@@ -48,7 +50,7 @@ function getAdmins() {
           .map((admin) => ({ username: clean(admin.username), password: clean(admin.password), role: admin.role || 'admin' }))
           .filter((admin) => admin.username && admin.password)
       }
-    } catch (err) {
+    } catch {
       console.warn('Invalid ADMINS_JSON / STAFFBOARD_ADMINS_JSON')
     }
   }
@@ -106,6 +108,28 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ error: 'Unauthorized' })
 }
 
+function cleanPresence() {
+  const cutoff = Date.now() - PRESENCE_TTL_MS
+  for (const [id, item] of presenceSessions.entries()) {
+    if (!item.lastSeenMs || item.lastSeenMs < cutoff) presenceSessions.delete(id)
+  }
+}
+
+function publicPresence() {
+  cleanPresence()
+  return Array.from(presenceSessions.values())
+    .sort((a, b) => b.lastSeenMs - a.lastSeenMs)
+    .map((item) => ({
+      id: item.id,
+      username: item.username,
+      role: item.role || 'admin',
+      page: item.page || '',
+      boardTitle: item.boardTitle || '',
+      selectedDay: item.selectedDay || '',
+      lastSeen: item.lastSeen,
+    }))
+}
+
 async function streamToString(stream) {
   const chunks = []
   for await (const chunk of stream) chunks.push(Buffer.from(chunk))
@@ -152,6 +176,7 @@ app.get('/api/health', (req, res) => {
     authConfigured: getAdmins().length > 0 || Boolean(AUTH_TOKEN),
     admins: getAdmins().map((admin) => admin.username),
     spacesConfigured,
+    presenceOnline: publicPresence().length,
     bucket: BUCKET || null,
     objectKey: KEY || null,
     historyKey: HISTORY_KEY || null,
@@ -171,6 +196,29 @@ app.post('/api/login', (req, res) => {
 
 app.get('/api/me', requireAuth, (req, res) => {
   res.json({ user: { username: req.user.username, role: req.user.role || 'admin' } })
+})
+
+app.post('/api/presence', requireAuth, (req, res) => {
+  cleanPresence()
+  const rawId = clean(req.body?.id)
+  const id = rawId || crypto.randomUUID()
+  const now = new Date()
+  presenceSessions.set(id, {
+    id,
+    username: req.user?.username || 'unknown',
+    role: req.user?.role || 'admin',
+    page: clean(req.body?.page),
+    boardTitle: clean(req.body?.boardTitle),
+    selectedDay: clean(req.body?.selectedDay),
+    lastSeen: now.toISOString(),
+    lastSeenMs: now.getTime(),
+    ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+  })
+  res.json({ id, online: publicPresence() })
+})
+
+app.get('/api/presence', requireAuth, (req, res) => {
+  res.json({ online: publicPresence() })
 })
 
 app.get('/api/state', requireAuth, async (req, res) => {
