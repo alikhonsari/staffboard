@@ -1,4 +1,9 @@
 (() => {
+  try {
+    localStorage.removeItem('staffboard2_token')
+    localStorage.removeItem('staffboard2_user')
+  } catch {}
+
   let fixed = false
   function repair() {
     if (fixed) return
@@ -12,6 +17,6 @@
     } catch {}
     setTimeout(() => window.location.reload(), 300)
   }
-  document.addEventListener('DOMContentLoaded', () => setTimeout(repair, 1000))
+  document.addEventListener('DOMContentLoaded', () => setTimeout(repair, 500))
   setInterval(repair, 1000)
 })()
