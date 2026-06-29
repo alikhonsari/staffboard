@@ -1,0 +1,91 @@
+:root{
+  --radius-lg:22px;
+  --radius-md:16px;
+  --focus-ring:0 0 0 3px rgba(37,99,235,.16);
+}
+
+html{scroll-behavior:smooth}
+body{min-width:320px}
+
+.sidebar,.main,.board-shell,.section,.card,.area,.summary-card,.snapshot-panel,.table-wrap{
+  transition:background .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease;
+}
+
+.sidebar{scrollbar-width:thin;scrollbar-color:rgba(100,116,139,.45) transparent}
+.main{scrollbar-width:thin;scrollbar-color:rgba(100,116,139,.45) transparent}
+.sidebar::-webkit-scrollbar,.main::-webkit-scrollbar,.table-wrap::-webkit-scrollbar{width:10px;height:10px}
+.sidebar::-webkit-scrollbar-thumb,.main::-webkit-scrollbar-thumb,.table-wrap::-webkit-scrollbar-thumb{background:rgba(100,116,139,.34);border-radius:999px;border:2px solid transparent;background-clip:padding-box}
+
+button{transition:transform .12s ease,filter .12s ease,box-shadow .12s ease,border-color .12s ease}
+button:hover{filter:brightness(1.03);box-shadow:0 8px 18px rgba(15,23,42,.08)}
+button:active{transform:translateY(1px)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+
+.sidebar-toggle{position:sticky;top:10px;z-index:20;box-shadow:0 10px 24px rgba(15,23,42,.12)}
+.view-section{position:sticky;top:0;z-index:8;box-shadow:0 10px 22px rgba(15,23,42,.06)}
+.view-tab-grid,.view-mode-grid,.row-inline,.pool-actions{gap:8px}
+.sidebar-tab,.nav-tab,.day-tab,.mode-toggle-btn{min-height:40px}
+
+.board-header{padding-bottom:6px;border-bottom:1px solid rgba(148,163,184,.25)}
+.title{letter-spacing:-.035em;line-height:1.05}
+.pill,.storage-badge,.mode-state-pill{white-space:nowrap}
+
+.hero-grid .card,.kpi,.summary-card,.ops,.snapshot-panel{position:relative;overflow:hidden}
+.hero-grid .card::before,.kpi::before,.summary-card::before,.ops.feature::before{
+  content:"";position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--accent),transparent);opacity:.45;pointer-events:none
+}
+
+.kpi-grid,.summary-grid{align-items:stretch}
+.kpi,.summary-card{min-height:86px}
+.kpi-value,.summary-value,.ops-value{font-variant-numeric:tabular-nums}
+
+.area{border-width:1px;box-shadow:0 8px 22px rgba(15,23,42,.05)}
+.area:hover{box-shadow:0 12px 28px rgba(15,23,42,.08);transform:translateY(-1px)}
+.area-head{position:sticky;top:0;z-index:2}
+.area-body{gap:10px}
+.tag{user-select:none;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}
+.tag:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(15,23,42,.10)}
+.tag-name{line-height:1.2}
+.mini-actions{opacity:.86}.tag:hover .mini-actions{opacity:1}
+
+input,select,textarea{transition:border-color .12s ease,box-shadow .12s ease,background .12s ease}
+textarea{line-height:1.45}
+label{letter-spacing:.01em}
+
+.table-wrap{box-shadow:0 8px 20px rgba(15,23,42,.05)}
+thead th{backdrop-filter:blur(8px)}
+tbody tr{transition:background .12s ease}
+
+.daily-notes-card,.opsx-card{box-shadow:0 8px 20px rgba(15,23,42,.06)}
+.history-modal-card,.opsx-modal{overflow:hidden}
+.history-modal-body,.opsx-body{background:linear-gradient(180deg,rgba(248,250,252,.7),rgba(255,255,255,.95))}
+
+body[data-theme="dark"]{
+  --focus-ring:0 0 0 3px rgba(125,211,252,.22);
+}
+body[data-theme="dark"] button:hover{box-shadow:0 8px 18px rgba(0,0,0,.20)}
+body[data-theme="dark"] .hero-grid .card::before,
+body[data-theme="dark"] .kpi::before,
+body[data-theme="dark"] .summary-card::before,
+body[data-theme="dark"] .ops.feature::before{opacity:.65}
+body[data-theme="dark"] .history-modal-body,
+body[data-theme="dark"] .opsx-body{background:linear-gradient(180deg,rgba(35,52,78,.92),rgba(30,45,69,.98))}
+
+@media(max-width:1180px){
+  .app{padding:12px!important;gap:12px!important}
+  .areas-grid{grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
+}
+
+@media(max-width:720px){
+  .row.two,.row.three,.split,.hero-grid,.two-col-layout{grid-template-columns:1fr!important}
+  .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .title{font-size:1.35rem!important}
+  .sidebar,.main,.board-shell{border-radius:16px!important}
+  .area{min-height:unset}
+}
+
+@media print{
+  .sidebar-toggle,.sidebar,.history-modal-backdrop,.opsx-modal-backdrop{display:none!important}
+  .app{display:block!important;padding:0!important}
+  .main,.board-shell,.card,.section{box-shadow:none!important;border-color:#ddd!important}
+}
