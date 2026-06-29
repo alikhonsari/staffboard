@@ -1,5 +1,8 @@
 const STORAGE_KEY = 'staffing_board_redo_complete_v2_weekly'
 const AUTH_TOKEN_KEY = 'staffboard_shared_auth_token'
+const LOGIN_TOKEN_KEY = 'staffboard2_token'
+const LOGIN_USER_KEY = 'staffboard2_user'
+const REQUEST_TIMEOUT_MS = 12000
 
 export const defaultStorageConfig = {
   mode: 'spaces-auto',
@@ -14,18 +17,17 @@ function normalize(defaultState, saved) {
   merged.builderPool = Array.isArray(saved.builderPool) ? saved.builderPool : []
   merged.storageConfig = { ...defaultStorageConfig, ...(saved.storageConfig || {}) }
   merged.weeklyData = { ...defaultState.weeklyData, ...(saved.weeklyData || {}) }
+  merged.weeklyBoards = saved.weeklyBoards || defaultState.weeklyBoards || {}
+  merged.weeklyHistory = saved.weeklyHistory || defaultState.weeklyHistory || {}
+  merged.lockedWeeks = saved.lockedWeeks || defaultState.lockedWeeks || {}
   return merged
 }
 
 function getAuthToken() {
-  const appLogin = localStorage.getItem('staffboard2_token') || ''
+  const appLogin = localStorage.getItem(LOGIN_TOKEN_KEY) || ''
   if (appLogin) return appLogin
-  let token = localStorage.getItem(AUTH_TOKEN_KEY) || ''
-  if (!token) {
-    token = window.prompt('Enter StaffBoard admin token')?.trim() || ''
-    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token)
-  }
-  return token
+  const legacyToken = localStorage.getItem(AUTH_TOKEN_KEY) || ''
+  return legacyToken
 }
 
 function authHeaders(extra = {}) {
@@ -35,6 +37,32 @@ function authHeaders(extra = {}) {
 
 export function clearSharedAuthToken() {
   localStorage.removeItem(AUTH_TOKEN_KEY)
+  localStorage.removeItem(LOGIN_TOKEN_KEY)
+  localStorage.removeItem(LOGIN_USER_KEY)
+}
+
+async function requestWithTimeout(url, options = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function responseMessage(res, fallback) {
+  try {
+    const type = res.headers.get('content-type') || ''
+    if (type.includes('application/json')) {
+      const data = await res.json()
+      return data.error || data.message || fallback
+    }
+    const text = await res.text()
+    return text || fallback
+  } catch {
+    return fallback
+  }
 }
 
 export function loadState(defaultState) {
@@ -46,38 +74,45 @@ export function loadState(defaultState) {
     return { ...defaultState, storageConfig: { ...defaultStorageConfig, ...(defaultState.storageConfig || {}) } }
   }
 }
+
 export function saveState(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
+
 export async function loadRemoteState(defaultState) {
-  const res = await fetch('/api/state', { headers: authHeaders() })
+  const res = await requestWithTimeout('/api/state', { headers: authHeaders() })
   if (res.status === 401) {
     clearSharedAuthToken()
-    throw new Error('Invalid admin token')
+    throw new Error('Invalid admin session. Please log in again.')
   }
-  if (!res.ok) throw new Error(await res.text() || 'Failed to load remote state')
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to load remote state'))
   const payload = await res.json()
   const normalized = normalize(defaultState, payload.state || {})
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
   return normalized
 }
+
 export async function saveRemoteState(state) {
-  const res = await fetch('/api/state', {
+  const res = await requestWithTimeout('/api/state', {
     method: 'PUT',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ state }),
   })
   if (res.status === 401) {
     clearSharedAuthToken()
-    throw new Error('Invalid admin token')
+    throw new Error('Invalid admin session. Please log in again.')
   }
-  if (!res.ok) throw new Error(await res.text() || 'Failed to save remote state')
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to save remote state'))
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   return res.json()
 }
 
 export async function loadHistory() {
-  const res = await fetch('/api/history', { headers: authHeaders() })
-  if (!res.ok) throw new Error(await res.text() || 'Failed to load history')
+  const res = await requestWithTimeout('/api/history', { headers: authHeaders() })
+  if (res.status === 401) {
+    clearSharedAuthToken()
+    throw new Error('Invalid admin session. Please log in again.')
+  }
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to load history'))
   return res.json()
 }
