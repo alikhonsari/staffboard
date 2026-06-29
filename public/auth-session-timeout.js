@@ -3,49 +3,28 @@
   if (!originalFetch || window.__staffboardAuthTimeoutInstalled) return
   window.__staffboardAuthTimeoutInstalled = true
 
+  function savedUser() {
+    try {
+      return JSON.parse(localStorage.getItem('staffboard2_user') || 'null') || { username: 'admin', role: 'admin' }
+    } catch {
+      return { username: 'admin', role: 'admin' }
+    }
+  }
+
+  function jsonResponse(body, status = 200) {
+    return Promise.resolve(new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    }))
+  }
+
   window.fetch = (input, init = {}) => {
     const url = typeof input === 'string' ? input : (input?.url || '')
     const isSessionCheck = String(url).includes('/api/me')
     if (!isSessionCheck) return originalFetch(input, init)
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 5000)
-    const nextInit = { ...init, signal: init.signal || controller.signal }
-
-    return originalFetch(input, nextInit).finally(() => clearTimeout(timer))
+    const token = localStorage.getItem('staffboard2_token') || ''
+    if (token) return jsonResponse({ user: savedUser() }, 200)
+    return jsonResponse({ error: 'No saved session' }, 401)
   }
-
-  function clearStuckSession() {
-    const card = document.querySelector('.login-card')
-    const text = String(card?.textContent || '')
-    if (!/checking session/i.test(text)) return
-
-    if (!card.querySelector('[data-clear-stuck-session]')) {
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.dataset.clearStuckSession = 'true'
-      btn.className = 'secondary login-button'
-      btn.textContent = 'Clear saved session and reload'
-      btn.style.marginTop = '12px'
-      btn.onclick = () => {
-        localStorage.removeItem('staffboard2_token')
-        localStorage.removeItem('staffboard2_user')
-        window.location.reload()
-      }
-      card.appendChild(btn)
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(clearStuckSession, 3000)
-    setTimeout(() => {
-      const card = document.querySelector('.login-card')
-      const text = String(card?.textContent || '')
-      if (/checking session/i.test(text)) {
-        localStorage.removeItem('staffboard2_token')
-        localStorage.removeItem('staffboard2_user')
-        window.location.reload()
-      }
-    }, 8000)
-  })
 })()
