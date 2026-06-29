@@ -1,5 +1,14 @@
 (() => {
+  function loadDensity() {
+    if (document.querySelector('[data-zoom-out-ui]')) return
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = '/zoom-out-ui.css'
+    link.dataset.zoomOutUi = 'true'
+    document.head.appendChild(link)
+  }
   function style() {
+    loadDensity()
     if (document.getElementById('manager-report-float-style')) return
     const s = document.createElement('style')
     s.id = 'manager-report-float-style'
