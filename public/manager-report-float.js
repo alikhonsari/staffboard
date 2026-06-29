@@ -1,11 +1,19 @@
 (() => {
   function loadDensity() {
-    if (document.querySelector('[data-zoom-out-ui]')) return
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = '/zoom-out-ui.css'
-    link.dataset.zoomOutUi = 'true'
-    document.head.appendChild(link)
+    if (!document.querySelector('[data-zoom-out-ui]')) {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/zoom-out-ui.css'
+      link.dataset.zoomOutUi = 'true'
+      document.head.appendChild(link)
+    }
+    if (!document.querySelector('[data-remove-waste-ui]')) {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/remove-wasted-space.css'
+      link.dataset.removeWasteUi = 'true'
+      document.head.appendChild(link)
+    }
   }
   function style() {
     loadDensity()
