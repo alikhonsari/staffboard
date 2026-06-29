@@ -3,7 +3,36 @@
     if (document.getElementById('manager-report-float-style')) return
     const s = document.createElement('style')
     s.id = 'manager-report-float-style'
-    s.textContent = `.manager-report-float{position:fixed;right:14px;bottom:58px;z-index:99982;border:0;border-radius:999px;padding:10px 14px;background:#2563eb;color:#fff;font:900 13px Arial;box-shadow:0 14px 34px rgba(37,99,235,.28);cursor:pointer}.manager-report-float:hover{filter:brightness(1.08)}body[data-theme="dark"] .manager-report-float{background:#7dd3fc;color:#071421}@media(max-width:720px){.manager-report-float{right:10px;bottom:104px}}`
+    s.textContent = `
+      .manager-report-float{
+        position:fixed!important;
+        top:12px!important;
+        right:14px!important;
+        bottom:auto!important;
+        left:auto!important;
+        z-index:100050!important;
+        width:auto!important;
+        min-width:0!important;
+        max-width:170px!important;
+        min-height:0!important;
+        height:auto!important;
+        display:inline-flex!important;
+        align-items:center!important;
+        justify-content:center!important;
+        border:0!important;
+        border-radius:999px!important;
+        padding:7px 11px!important;
+        background:#2563eb!important;
+        color:#fff!important;
+        font:900 12px Arial!important;
+        line-height:1!important;
+        box-shadow:0 10px 24px rgba(37,99,235,.22)!important;
+        cursor:pointer!important;
+      }
+      .manager-report-float:hover{filter:brightness(1.08)!important}
+      body[data-theme="dark"] .manager-report-float{background:#7dd3fc!important;color:#071421!important}
+      @media(max-width:720px){.manager-report-float{top:10px!important;right:10px!important;font-size:11px!important;padding:7px 10px!important}}
+    `
     document.head.appendChild(s)
   }
   function openManagerReport() {
@@ -29,7 +58,7 @@
     b.type = 'button'
     b.className = 'manager-report-float'
     b.dataset.managerReportFloat = 'true'
-    b.textContent = 'Manager Report'
+    b.textContent = 'Manager'
     b.onclick = openManagerReport
     document.body.appendChild(b)
   }
