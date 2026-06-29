@@ -242,7 +242,16 @@
     })
   }
 
+  function loadPngExportTool() {
+    if (document.querySelector('[data-png-export-loader]')) return
+    const script = document.createElement('script')
+    script.dataset.pngExportLoader = 'true'
+    script.src = '/' + 'share' + '-png.js'
+    document.body.appendChild(script)
+  }
+
   function tick() {
+    loadPngExportTool()
     watchControls()
     renderCards()
   }
