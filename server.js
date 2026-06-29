@@ -34,17 +34,6 @@ const s3 = spacesConfigured ? new S3Client({
 
 const app = express()
 app.use(cors())
-app.use((req, res, next) => {
-  const p = req.path || ''
-  const dynamicAsset = p === '/' || p.endsWith('.html') || p.endsWith('.js') || p.endsWith('.jsx') || p.endsWith('.css') || p.startsWith('/src/')
-  if (dynamicAsset) {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-    res.set('Pragma', 'no-cache')
-    res.set('Expires', '0')
-    res.set('Surrogate-Control', 'no-store')
-  }
-  next()
-})
 app.use(express.json({ limit: '12mb' }))
 
 function clean(value) {
@@ -182,7 +171,6 @@ async function appendHistory(entry) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.set('Cache-Control', 'no-store')
   res.json({
     ok: true,
     authConfigured: getAdmins().length > 0 || Boolean(AUTH_TOKEN),
@@ -198,7 +186,6 @@ app.get('/api/health', (req, res) => {
 })
 
 app.post('/api/login', (req, res) => {
-  res.set('Cache-Control', 'no-store')
   const username = clean(req.body?.username)
   const password = clean(req.body?.password)
   const found = getAdmins().find((admin) => admin.username === username && admin.password === password)
@@ -208,7 +195,6 @@ app.post('/api/login', (req, res) => {
 })
 
 app.get('/api/me', requireAuth, (req, res) => {
-  res.set('Cache-Control', 'no-store')
   res.json({ user: { username: req.user.username, role: req.user.role || 'admin' } })
 })
 
