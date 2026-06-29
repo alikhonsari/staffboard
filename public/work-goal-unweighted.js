@@ -2,11 +2,52 @@
   const K = 'staffing_board_redo_complete_v2_weekly'
   const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday']
   const STAFF = new Set(['Present','Training','Indirect'])
+  const SHIFT_HOURS = 8
+  const SHIFT_END_MINUTE = 30
   const getState = () => { try { return JSON.parse(localStorage.getItem(K) || '{}') } catch { return {} } }
   const num = (v) => { const n = Number(v || 0); return Number.isFinite(n) ? n : 0 }
   const first = (m, keys) => keys.map((k) => num(m?.[k])).find(Boolean) || 0
+  const isNight = (label) => String(label || '').toLowerCase().includes('night')
+  function dayName(s) { return DAYS.includes(s.selectedDay) ? s.selectedDay : 'Monday' }
+  function boardDate(s) {
+    const d = new Date(`${s.weekStartDate || new Date().toISOString().slice(0, 10)}T00:00:00`)
+    d.setDate(d.getDate() + Math.max(0, DAYS.indexOf(dayName(s))))
+    return d
+  }
+  function shiftInfo(s) {
+    const now = new Date()
+    const start = boardDate(s)
+    const end = boardDate(s)
+    const breakStart = boardDate(s)
+    if (isNight(s.boardShift)) {
+      start.setHours(20,0,0,0)
+      end.setDate(end.getDate() + 1); end.setHours(4,SHIFT_END_MINUTE,0,0)
+      breakStart.setDate(breakStart.getDate() + 1); breakStart.setHours(0,0,0,0)
+    } else {
+      start.setHours(8,0,0,0)
+      end.setHours(16,SHIFT_END_MINUTE,0,0)
+      breakStart.setHours(12,0,0,0)
+    }
+    const breakEnd = new Date(breakStart); breakEnd.setMinutes(breakEnd.getMinutes() + 30)
+    let elapsed = 0, left = 0
+    if (now <= start) left = SHIFT_HOURS
+    else if (now >= end) elapsed = SHIFT_HOURS
+    else {
+      const minutesSinceStart = (now - start) / 60000
+      const minutesToEnd = (end - now) / 60000
+      let unpaidBreakElapsed = 0
+      if (now >= breakEnd) unpaidBreakElapsed = 30
+      else if (now > breakStart && now < breakEnd) unpaidBreakElapsed = (now - breakStart) / 60000
+      let unpaidBreakRemaining = 0
+      if (now < breakStart) unpaidBreakRemaining = 30
+      else if (now >= breakStart && now < breakEnd) unpaidBreakRemaining = (breakEnd - now) / 60000
+      elapsed = Math.max(0, (minutesSinceStart - unpaidBreakElapsed) / 60)
+      left = Math.max(0, (minutesToEnd - unpaidBreakRemaining) / 60)
+    }
+    return { shift: SHIFT_HOURS, elapsed: Math.max(0, Math.min(SHIFT_HOURS, elapsed)), left: Math.max(0, Math.min(SHIFT_HOURS, left)) }
+  }
   function calc() {
-    const s = getState(), day = DAYS.includes(s.selectedDay) ? s.selectedDay : 'Monday'
+    const s = getState(), day = dayName(s)
     const d = s.weeklyData?.[day] || { assignments:{}, opsMetrics:{} }
     const m = d.opsMetrics || {}
     const builders = new Map((s.builderPool || []).map((b) => [b.id, b]))
@@ -16,9 +57,10 @@
     const media = first(m, ['mediaProcessed','processedMedia','media'])
     const work = recovery + prep + media
     const goal = num(m.goalTph || s.goalTph || 7)
-    const shift = num(m.shiftHours || s.shiftHours || 7.5)
-    const elapsed = num(m.elapsedHours || m.hoursElapsed || s.elapsedHours || 0)
-    const left = Math.max(0, shift - elapsed)
+    const liveShift = shiftInfo(s)
+    const shift = liveShift.shift
+    const elapsed = liveShift.elapsed
+    const left = liveShift.left
     const fullGoal = goal * Math.max(hc, 1) * shift
     const goalNow = goal * Math.max(hc, 1) * elapsed
     const current = elapsed > 0 && hc > 0 ? work / elapsed / hc : 0
@@ -31,7 +73,7 @@
   const one = (v) => Number(v || 0).toFixed(1)
   function card() {
     const c = calc()
-    return `<div class="unweighted-card" data-unweighted-card="true"><div><b>Simple Work / Goal</b><h2>${c.status}</h2><p>Work = Recovery racks + Prep racks + Media. No weighted calculation.</p></div><div class="unweighted-big"><span>Work Done</span><strong>${whole(c.work)}</strong><small>${whole(c.recovery)} recovery + ${whole(c.prep)} prep + ${whole(c.media)} media</small></div><div class="unweighted-grid"><div><span>Full Goal</span><strong>${whole(c.fullGoal)}</strong></div><div><span>Goal Now</span><strong>${whole(c.goalNow)}</strong></div><div><span>Current TPH/HC</span><strong>${one(c.current)}</strong></div><div><span>Need Rest of Shift</span><strong>${whole(c.needWork)}</strong><small>${one(c.needTph)} TPH/HC</small></div><div><span>Headcount</span><strong>${whole(c.hc)}</strong></div><div><span>Pace</span><strong>${c.pace}%</strong></div></div></div>`
+    return `<div class="unweighted-card" data-unweighted-card="true"><div><b>Simple Work / Goal</b><h2>${c.status}</h2><p>Work = Recovery racks + Prep racks + Media. No weighted calculation.</p></div><div class="unweighted-big"><span>Work Done</span><strong>${whole(c.work)}</strong><small>${whole(c.recovery)} recovery + ${whole(c.prep)} prep + ${whole(c.media)} media</small></div><div class="unweighted-grid"><div><span>Full Goal</span><strong>${whole(c.fullGoal)}</strong></div><div><span>Goal Now</span><strong>${whole(c.goalNow)}</strong></div><div><span>Current TPH/HC</span><strong>${one(c.current)}</strong></div><div><span>Need Rest of Shift</span><strong>${whole(c.needWork)}</strong><small>${one(c.needTph)} TPH/HC</small></div><div><span>Hours Left</span><strong>${one(c.left)}</strong><small>${one(c.elapsed)} elapsed</small></div><div><span>Pace</span><strong>${c.pace}%</strong></div></div></div>`
   }
   function style() {
     if (document.getElementById('unweighted-style')) return
