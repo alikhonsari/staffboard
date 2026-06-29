@@ -9,6 +9,7 @@ export default defineConfig({
     allowedHosts: [
       'squid-app-wrvn7.ondigitalocean.app',
       '.ondigitalocean.app',
+      'cloud-fronted.com',
     ],
   },
 })
