@@ -7,6 +7,12 @@
       link.dataset.zoomOutUi = 'true'
       document.head.appendChild(link)
     }
+    if (!document.querySelector('[data-tph-hours-fix-file]')) {
+      const script = document.createElement('script')
+      script.src = '/tph-hours-fix.js?v=2'
+      script.dataset.tphHoursFixFile = 'true'
+      document.body.appendChild(script)
+    }
   }
 
   function sessionFallback() {
