@@ -1,12 +1,14 @@
 {
   "name": "staffboard-final-full-spaces",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
-    "build": "vite build"
+    "build": "vite build",
+    "check": "vite build",
+    "clean": "rm -rf dist node_modules/.vite"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.787.0",
