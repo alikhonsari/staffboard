@@ -12,6 +12,22 @@
     return ''
   }
 
+  function addEnhancementFiles() {
+    if (!document.querySelector('[data-layout-v2-file]')) {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/app-layout-v2.css'
+      link.dataset.layoutV2File = 'true'
+      document.head.appendChild(link)
+    }
+    if (!document.querySelector('[data-manager-tph-file]')) {
+      const script = document.createElement('script')
+      script.src = '/manager-tph.js'
+      script.dataset.managerTphFile = 'true'
+      document.body.appendChild(script)
+    }
+  }
+
   function addStyle() {
     if (document.getElementById(STYLE_ID)) return
     const style = document.createElement('style')
@@ -77,6 +93,7 @@
     if (!document.hidden) check()
   })
 
+  addEnhancementFiles()
   setInterval(check, 60000)
   check()
 })()
