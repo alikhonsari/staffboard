@@ -7,13 +7,6 @@
       link.dataset.zoomOutUi = 'true'
       document.head.appendChild(link)
     }
-    if (!document.querySelector('[data-remove-waste-ui]')) {
-      const link = document.createElement('link')
-      link.rel = 'stylesheet'
-      link.href = '/remove-wasted-space.css'
-      link.dataset.removeWasteUi = 'true'
-      document.head.appendChild(link)
-    }
   }
   function style() {
     loadDensity()
