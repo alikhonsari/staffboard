@@ -1,6 +1,24 @@
 (() => {
   const SHIFT_HOURS = 8
 
+  function text(el) {
+    return String(el?.textContent || '').trim()
+  }
+
+  function activeShiftText() {
+    const parts = []
+    document.querySelectorAll('.board-header .pill, .png-header-card .small, .auth-section strong').forEach((el) => {
+      const value = text(el)
+      if (value) parts.push(value)
+    })
+    return parts.join(' ').toLowerCase()
+  }
+
+  function isNightShift() {
+    const active = activeShiftText()
+    return active.includes('night shift') || active.includes('· night') || active.includes('night')
+  }
+
   function atToday(hour, minute = 0) {
     const d = new Date()
     d.setHours(hour, minute, 0, 0)
@@ -8,6 +26,20 @@
   }
 
   function shiftWindow() {
+    if (isNightShift()) {
+      const start = atToday(17, 0)
+      const end = atToday(1, 30)
+      const breakStart = atToday(21, 0)
+      if (new Date().getHours() < 12) {
+        start.setDate(start.getDate() - 1)
+      } else {
+        end.setDate(end.getDate() + 1)
+      }
+      const breakEnd = new Date(breakStart)
+      breakEnd.setMinutes(breakEnd.getMinutes() + 30)
+      return { start, end, breakStart, breakEnd }
+    }
+
     const start = atToday(8, 0)
     const end = atToday(16, 30)
     const breakStart = atToday(12, 0)
@@ -35,10 +67,6 @@
     const worked = Math.max(0, Math.min(SHIFT_HOURS, (minutesSinceStart - breakElapsed) / 60))
     const remaining = Math.max(0, Math.min(SHIFT_HOURS, (minutesToEnd - breakRemaining) / 60))
     return { worked, remaining }
-  }
-
-  function text(el) {
-    return String(el?.textContent || '').trim()
   }
 
   function findOpsCard(label) {
