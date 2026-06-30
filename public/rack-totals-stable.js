@@ -15,32 +15,26 @@
     return t.includes('shift') || t.includes('staffboard') || t.includes('staffing board') || t.includes('week of') || t.includes('lead:') || t.includes('admin:')
   }
   function material(line) { return /\b(decom|speed)\b/i.test(String(line || '')) }
-  function qty(line) {
-    const raw = String(line || '').trim()
-    const a = raw.match(/(?:^|\s)(\d+)\s*(?:x\s*)?(decom|speed)\b/i)
-    if (a) return Number(a[1]) || 0
-    const b = raw.match(/\b(decom|speed)\b\s*(?:x\s*)?(\d+)(?:\s|$)/i)
-    if (b) return Number(b[2]) || 0
-    return 0
-  }
   function rackId(line) {
     if (boardText(line)) return false
-    const hits = String(line || '').match(/\b[A-Z0-9][A-Z0-9-]{3,}\b/gi) || []
-    return hits.some((x) => /\d/.test(x) && x.length >= 4)
+    const raw = String(line || '').trim()
+    if (/^\d{3,}$/.test(raw)) return true
+    const hits = raw.match(/\b[A-Z0-9][A-Z0-9-]{2,}\b/gi) || []
+    return hits.some((x) => /\d/.test(x) && x.length >= 3)
   }
   function validLine(line) {
     const raw = String(line || '').trim()
     if (!raw || boardText(raw)) return false
     if (/^(group|decom|speed|other|total|prepped|processed|rack id|rack ids|material type|type)$/i.test(raw)) return false
-    return material(raw) && (qty(raw) > 0 || rackId(raw))
+    return rackId(raw) || material(raw)
   }
   function parse(txt) {
-    return String(txt || '').split(/\r?\n/).map((x) => x.trim()).filter(validLine).map((raw) => ({ raw, kind: kind(raw), qty: qty(raw) || 1 }))
+    return String(txt || '').split(/\r?\n/).map((x) => x.trim()).filter(validLine).map((raw) => ({ raw, kind: kind(raw), qty: 1 }))
   }
   function savedText(d, keys) {
     for (const k of keys) {
       const v = d?.rackLists?.[k] ?? d?.opsMetrics?.[k]
-      if (typeof v === 'string' && /\b(decom|speed)\b/i.test(v)) return v
+      if (typeof v === 'string' && (v.trim() || /\b(decom|speed)\b/i.test(v))) return v
     }
     return ''
   }
@@ -73,7 +67,7 @@
     return c
   }
   function html(c) {
-    return `<div class="rack-simple-card"><div class="rack-simple-head"><strong>Rack Material Counts</strong><span>Prep and Recovery are separate</span></div><table class="opsx-table"><thead><tr><th>Workstream</th><th>Decom</th><th>SPEED</th><th>Other</th><th>Total</th></tr></thead><tbody><tr><td>Prep Racks</td><td>${c.prep.Decom}</td><td>${c.prep.SPEED}</td><td>${c.prep.Other}</td><td>${c.prep.total}</td></tr><tr><td>Recovery Racks</td><td>${c.recovery.Decom}</td><td>${c.recovery.SPEED}</td><td>${c.recovery.Other}</td><td>${c.recovery.total}</td></tr><tr><td><strong>Total Material</strong></td><td><strong>${c.total.Decom}</strong></td><td><strong>${c.total.SPEED}</strong></td><td><strong>${c.total.Other}</strong></td><td><strong>${c.total.total}</strong></td></tr></tbody></table><div class="rack-simple-note">Examples: <b>1 decom</b>, <b>2 speed</b>, or <b>RACK123 SPEED</b>. Work goal still uses Recovery racks + Prep racks + Media only.</div></div>`
+    return `<div class="rack-simple-card"><div class="rack-simple-head"><strong>Rack Material Counts</strong><span>Prep and Recovery are separate</span></div><table class="opsx-table"><thead><tr><th>Workstream</th><th>Decom</th><th>SPEED</th><th>Other</th><th>Total</th></tr></thead><tbody><tr><td>Prep Racks</td><td>${c.prep.Decom}</td><td>${c.prep.SPEED}</td><td>${c.prep.Other}</td><td>${c.prep.total}</td></tr><tr><td>Recovery Racks</td><td>${c.recovery.Decom}</td><td>${c.recovery.SPEED}</td><td>${c.recovery.Other}</td><td>${c.recovery.total}</td></tr><tr><td><strong>Total Material</strong></td><td><strong>${c.total.Decom}</strong></td><td><strong>${c.total.SPEED}</strong></td><td><strong>${c.total.Other}</strong></td><td><strong>${c.total.total}</strong></td></tr></tbody></table><div class="rack-simple-note">Examples: <b>123456 decom</b>, <b>123457 speed</b>, or <b>123458</b>. Each line counts as one rack. Rack IDs are text, not quantities.</div></div>`
   }
   function style() {
     if (document.getElementById('rack-stable-style')) return
