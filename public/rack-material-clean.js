@@ -3,36 +3,29 @@
 
   function readState() { try { return JSON.parse(localStorage.getItem(KEY) || '{}') } catch { return {} } }
   function kind(text) { const t = String(text || '').toLowerCase(); return t.includes('decom') ? 'Decom' : t.includes('speed') ? 'SPEED' : 'Other' }
-  function quantity(text) {
-    const raw = String(text || '').trim()
-    const a = raw.match(/(?:^|\s)(\d+)\s*(?:x\s*)?(decom|speed)\b/i)
-    if (a) return Number(a[1]) || 0
-    const b = raw.match(/\b(decom|speed)\b\s*(?:x\s*)?(\d+)(?:\s|$)/i)
-    if (b) return Number(b[2]) || 0
-    return 0
-  }
   function isBoardText(text) {
     const t = String(text || '').toLowerCase()
     return t.includes('shift') || t.includes('staffboard') || t.includes('staffing board') || t.includes('week of') || t.includes('lead:') || t.includes('admin:')
   }
   function hasRackId(text) {
     if (isBoardText(text)) return false
-    const hits = String(text || '').match(/\b[A-Z0-9][A-Z0-9-]{3,}\b/gi) || []
-    return hits.some((x) => /\d/.test(x) && x.length >= 4)
+    const raw = String(text || '').trim()
+    if (/^\d{3,}$/.test(raw)) return true
+    const hits = raw.match(/\b[A-Z0-9][A-Z0-9-]{2,}\b/gi) || []
+    return hits.some((x) => /\d/.test(x) && x.length >= 3)
   }
   function isMaterialRow(line) {
     const raw = String(line || '').trim()
     if (!raw || isBoardText(raw)) return false
     if (/^(group|decom|speed|other|total|prepped|processed|recovered|rack id|rack ids|material type|type)$/i.test(raw)) return false
-    return /\b(decom|speed)\b/i.test(raw) && (quantity(raw) > 0 || hasRackId(raw))
+    return hasRackId(raw) || /\b(decom|speed)\b/i.test(raw)
   }
   function parse(text) {
     const out = { Decom: 0, SPEED: 0, Other: 0, total: 0 }
     String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(isMaterialRow).forEach((line) => {
-      const q = quantity(line) || 1
       const k = kind(line)
-      out[k] += q
-      out.total += q
+      out[k] += 1
+      out.total += 1
     })
     return out
   }
@@ -46,6 +39,15 @@
     })
     return box?.value || ''
   }
+  function fixRackPlaceholders() {
+    Array.from(document.querySelectorAll('textarea')).forEach((area) => {
+      const host = area.closest('.section,.card,.field,.row,div') || area.parentElement
+      const text = (host?.textContent || '').toLowerCase()
+      if (text.includes('paste') && text.includes('racks')) {
+        area.placeholder = '123456 Decom\n123457 SPEED\n123458'
+      }
+    })
+  }
   function totals() {
     return { prep: parse(findPasteText('prep')), recovery: parse(findPasteText('recovery')) }
   }
@@ -53,7 +55,7 @@
     return `<div class="rack-clean-cell"><span>${title}</span><strong>${c.total}</strong><small>Decom ${c.Decom} · SPEED ${c.SPEED} · Other ${c.Other}</small></div>`
   }
   function html(t) {
-    return `<div class="rack-clean" data-rack-clean="true"><div class="rack-clean-title"><strong>Rack Material Breakdown</strong><span>Separate from TPH/Goal</span></div><div class="rack-clean-grid">${cell('Prepped Racks', t.prep)}${cell('Recovered Racks', t.recovery)}</div><div class="rack-clean-note">This only counts the pasted material lists. Goal/TPH uses the numeric Recovery + Prep + Media fields separately.</div></div>`
+    return `<div class="rack-clean" data-rack-clean="true"><div class="rack-clean-title"><strong>Rack Material Breakdown</strong><span>Separate from TPH/Goal</span></div><div class="rack-clean-grid">${cell('Prepped Racks', t.prep)}${cell('Recovered Racks', t.recovery)}</div><div class="rack-clean-note">Paste one rack ID per line. Numeric rack IDs are treated as string IDs and counted as one rack each, never added together.</div></div>`
   }
   function style() {
     if (document.getElementById('rack-clean-style')) return
@@ -70,6 +72,7 @@
   }
   function inject() {
     style()
+    fixRackPlaceholders()
     hideOldMaterialLine()
     const t = totals()
     document.querySelectorAll('[data-rack-clean]').forEach((x) => x.remove())
