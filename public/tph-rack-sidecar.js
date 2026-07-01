@@ -51,18 +51,32 @@
   }
 
   function layout() {
-    addStyle()
-    const tph = findCardByText(/\bTPH\s+Reporting\b/i)
-    const rack = findCardByText(/\bRack ID Summary\b/i)
-    if (!tph || !rack || tph === rack) return
-    if (tph.closest(`.${ROW_CLASS}`) && rack.closest(`.${ROW_CLASS}`)) return
+    try {
+      addStyle()
+      const tph = findCardByText(/\bTPH\s+Reporting\b/i)
+      const rack = findCardByText(/\bRack ID Summary\b/i)
+      if (!tph || !rack || tph === rack) return
 
-    const row = document.createElement('div')
-    row.className = ROW_CLASS
-    row.dataset.tphRackSidecar = 'true'
-    tph.parentNode.insertBefore(row, tph)
-    row.appendChild(tph)
-    row.appendChild(rack)
+      const existingRow = tph.closest(`.${ROW_CLASS}`) || rack.closest(`.${ROW_CLASS}`)
+      if (existingRow) {
+        if (tph.parentNode !== existingRow && tph.isConnected) existingRow.appendChild(tph)
+        if (rack.parentNode !== existingRow && rack.isConnected) existingRow.appendChild(rack)
+        return
+      }
+
+      const parent = tph.parentNode
+      if (!parent || tph.parentNode !== parent || !tph.isConnected || !rack.isConnected) return
+      if (!Array.prototype.includes.call(parent.childNodes, tph)) return
+
+      const row = document.createElement('div')
+      row.className = ROW_CLASS
+      row.dataset.tphRackSidecar = 'true'
+      parent.insertBefore(row, tph)
+      row.appendChild(tph)
+      row.appendChild(rack)
+    } catch (err) {
+      console.warn('TPH/Rack sidecar layout skipped:', err?.message || err)
+    }
   }
 
   document.addEventListener('DOMContentLoaded', layout)
