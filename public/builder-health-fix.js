@@ -18,29 +18,77 @@
     return state.selectedDay || 'Monday'
   }
 
-  function matchesCurrentShift(builder, state) {
-    const badge = String(builder?.badgeType || 'day').toLowerCase()
-    if (badge === 'green') return true
-    return isNightShift(state) ? badge === 'night' : badge !== 'night'
+  function currentBoardKind(state) {
+    const id = String(state.currentBoardId || '').toLowerCase()
+    const title = String(state.boardTitle || '').toLowerCase()
+    if (id.includes('fa_') || title.includes('fa lab')) return 'fa'
+    if (id.includes('bodega') || title.includes('bodega')) return 'bodega'
+    return 'speed'
+  }
+
+  function groupShiftMatch(group, state) {
+    const name = String(group?.name || '').toLowerCase()
+    const night = isNightShift(state)
+    if (night && !name.includes('night')) return false
+    if (!night && name.includes('night')) return false
+    if (!night && !(name.includes('day') || name.includes('shift'))) return false
+    return true
+  }
+
+  function groupBoardMatch(group, state) {
+    const name = String(group?.name || '').toLowerCase()
+    const kind = currentBoardKind(state)
+    if (kind === 'fa') return name.includes('fa') || name.includes('lab')
+    if (kind === 'bodega') return name.includes('bodega')
+    return name.includes('speed') || (!name.includes('fa') && !name.includes('lab') && !name.includes('bodega'))
+  }
+
+  function matchingGroups(state) {
+    const groups = Array.isArray(state.builderGroups) ? state.builderGroups : []
+    const exact = groups.filter((g) => groupShiftMatch(g, state) && groupBoardMatch(g, state))
+    if (exact.length) return exact
+    return groups.filter((g) => groupShiftMatch(g, state))
   }
 
   function assignmentFor(state, id) {
     return state.weeklyData?.[selectedDay(state)]?.assignments?.[id] || null
   }
 
+  function activeRoster(state) {
+    return (state.builderPool || []).filter((builder) => !builder.isArchived && !state.archivedBuilders?.[builder.id])
+  }
+
   function currentBuilders(state) {
-    return (state.builderPool || [])
-      .filter((builder) => !builder.isArchived && !state.archivedBuilders?.[builder.id])
-      .filter((builder) => matchesCurrentShift(builder, state))
+    const roster = activeRoster(state)
+    const groups = matchingGroups(state)
+    if (groups.length) {
+      const ids = new Set(groups.flatMap((g) => Array.isArray(g.builderIds) ? g.builderIds : []))
+      const grouped = roster.filter((builder) => ids.has(builder.id))
+      if (grouped.length) return { builders: grouped, source: groups.map((g) => g.name).join(', ') }
+    }
+
+    const assigned = roster.filter((builder) => assignmentFor(state, builder.id))
+    if (assigned.length) return { builders: assigned, source: `${selectedDay(state)} assigned` }
+
+    return { builders: roster, source: 'Master roster' }
+  }
+
+  function badgeType(builder) {
+    const raw = String(builder?.badgeType || 'day').toLowerCase()
+    if (raw.includes('night')) return 'night'
+    if (raw.includes('green')) return 'green'
+    return 'day'
   }
 
   function stats(state) {
-    const builders = currentBuilders(state)
+    const current = currentBuilders(state)
+    const builders = current.builders
     const assignedToday = builders.filter((builder) => assignmentFor(state, builder.id)).length
     const activeToday = builders.filter((builder) => STAFFED.has(assignmentFor(state, builder.id)?.status || '')).length
     return {
       shift: isNightShift(state) ? 'Night Shift' : 'Day Shift',
       dayName: selectedDay(state),
+      source: current.source,
       total: builders.length,
       assignedToday,
       activeToday,
@@ -51,9 +99,9 @@
       forklift: builders.filter((b) => b.trainedForklift).length,
       center: builders.filter((b) => b.trainedCenterRider).length,
       clamp: builders.filter((b) => b.trainedClampTruck).length,
-      blueDay: builders.filter((b) => (b.badgeType || 'day') === 'day').length,
-      blueNight: builders.filter((b) => b.badgeType === 'night').length,
-      green: builders.filter((b) => b.badgeType === 'green').length,
+      blueDay: builders.filter((b) => badgeType(b) === 'day').length,
+      blueNight: builders.filter((b) => badgeType(b) === 'night').length,
+      green: builders.filter((b) => badgeType(b) === 'green').length,
     }
   }
 
@@ -77,11 +125,9 @@
 
   function html(state) {
     const st = stats(state)
-    const badgeLabel = st.shift === 'Night Shift' ? 'Blue Night' : 'Blue Day'
-    const badgeValue = st.shift === 'Night Shift' ? st.blueNight : st.blueDay
-    return `<div class="builder-health-title">Builder Roster Health · ${esc(st.shift)} · ${esc(st.dayName)} only</div><div class="builder-health-kpis">${[
+    return `<div class="builder-health-title">Builder Roster Health · ${esc(st.shift)} · ${esc(st.dayName)} · ${esc(st.source)}</div><div class="builder-health-kpis">${[
       ['Total', st.total], ['Assigned Today', st.assignedToday], ['Active Today', st.activeToday], ['Trainers', st.trainers], ['Safety', st.safety], ['Line Leads', st.lineLeads],
-      ['TDR', st.tdr], ['Forklift', st.forklift], ['Center Rider', st.center], ['Clamp', st.clamp], [badgeLabel, badgeValue], ['Green', st.green],
+      ['TDR', st.tdr], ['Forklift', st.forklift], ['Center Rider', st.center], ['Clamp', st.clamp], ['Blue Day', st.blueDay], ['Blue Night', st.blueNight], ['Green', st.green],
     ].map(([label, value]) => kpi(label, value)).join('')}</div><button class="builder-health-open" type="button">Open Builder Tools</button>`
   }
 
