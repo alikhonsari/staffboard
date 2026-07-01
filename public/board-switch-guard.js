@@ -18,14 +18,6 @@
     try { return JSON.parse(JSON.stringify(value ?? fallback)) } catch { return fallback }
   }
 
-  function readState() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '{}') } catch { return {} }
-  }
-
-  function writeState(state) {
-    localStorage.setItem(KEY, JSON.stringify(state))
-  }
-
   function monday(value) {
     const raw = /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : new Date().toISOString().slice(0, 10)
     const d = new Date(raw + 'T00:00:00')
@@ -80,26 +72,6 @@
     })
   }
 
-  function makeBoard(state, id) {
-    const preset = BOARDS[id] || BOARDS.speed_day
-    const weekStartDate = monday(state.weekStartDate)
-    const weeklyData = cleanWeek(state.weeklyData)
-    const weeklyBoards = cleanWeekMap(state.weeklyBoards)
-    if (hasWeekData(weeklyData)) weeklyBoards[weekStartDate] = weeklyData
-    return {
-      boardTitle: state.boardTitle || preset[0],
-      boardShift: state.boardShift || preset[1],
-      selectedDay: DAYS.includes(state.selectedDay) ? state.selectedDay : 'Monday',
-      areaDefs: Array.isArray(state.areaDefs) ? state.areaDefs : [],
-      weekStartDate,
-      weeklyData,
-      weeklyBoards,
-      weeklyHistory: isObject(state.weeklyHistory) ? state.weeklyHistory : {},
-      lockedWeeks: isObject(state.lockedWeeks) ? state.lockedWeeks : {},
-      commentsBoard: isObject(state.commentsBoard) ? state.commentsBoard : {},
-    }
-  }
-
   function cleanBoard(board, id, fallbackWeek) {
     const preset = BOARDS[id] || BOARDS.speed_day
     const src = isObject(board) ? board : {}
@@ -121,55 +93,48 @@
     }
   }
 
-  function sanitize(targetBoardId) {
+  function currentBoardSnapshot(state, id) {
+    const preset = BOARDS[id] || BOARDS.speed_day
+    return cleanBoard({
+      boardTitle: state.boardTitle || preset[0],
+      boardShift: state.boardShift || preset[1],
+      selectedDay: state.selectedDay,
+      areaDefs: state.areaDefs,
+      weekStartDate: state.weekStartDate,
+      weeklyData: state.weeklyData,
+      weeklyBoards: state.weeklyBoards,
+      weeklyHistory: state.weeklyHistory,
+      lockedWeeks: state.lockedWeeks,
+      commentsBoard: state.commentsBoard,
+    }, id, state.weekStartDate)
+  }
+
+  function sanitize() {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return null
+    if (!raw) return
     try {
       const state = JSON.parse(raw)
       const currentBoardId = BOARDS[state.currentBoardId] ? state.currentBoardId : 'speed_day'
-      const boardId = BOARDS[targetBoardId] ? targetBoardId : currentBoardId
       const weekStartDate = monday(state.weekStartDate)
       const store = isObject(state.boardStore) ? safeCopy(state.boardStore, {}) : {}
-      store[currentBoardId] = makeBoard(state, currentBoardId)
+      store[currentBoardId] = currentBoardSnapshot(state, currentBoardId)
       Object.keys(BOARDS).forEach((id) => { store[id] = cleanBoard(store[id], id, weekStartDate) })
-      const active = cleanBoard(store[boardId], boardId, weekStartDate)
-      store[boardId] = active
-      const next = {
-        ...state, ...active,
-        currentBoardId: boardId,
+      localStorage.setItem(KEY, JSON.stringify({
+        ...state,
+        currentBoardId,
         boardStore: store,
         builderPool: Array.isArray(state.builderPool) ? state.builderPool : [],
         builderGroups: Array.isArray(state.builderGroups) ? state.builderGroups : [],
-      }
-      writeState(next)
-      return next
+      }))
     } catch {
       localStorage.setItem(KEY + '_bad_backup_' + Date.now(), raw)
       localStorage.removeItem(KEY)
-      return null
-    }
-  }
-
-  function switchBoard(boardId) {
-    if (!BOARDS[boardId]) return false
-    const current = readState().currentBoardId || 'speed_day'
-    sanitize(boardId)
-    if (boardId !== current) setTimeout(() => window.location.reload(), 0)
-    return boardId !== current
-  }
-
-  function catchBoardChange(event) {
-    const target = event.target
-    const select = target?.closest?.('select')
-    const value = select?.value
-    if (!BOARDS[value]) return
-    if (switchBoard(value)) {
-      event.preventDefault()
-      event.stopPropagation()
-      if (event.stopImmediatePropagation) event.stopImmediatePropagation()
     }
   }
 
   sanitize()
-  document.addEventListener('change', catchBoardChange, true)
+  document.addEventListener('change', (event) => {
+    const value = event.target?.closest?.('select')?.value
+    if (BOARDS[value]) sanitize()
+  }, true)
 })()
