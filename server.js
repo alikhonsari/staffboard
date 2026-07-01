@@ -23,6 +23,7 @@ const REGION = process.env.SPACES_REGION || 'us-east-1'
 const ACCESS_KEY = process.env.SPACES_KEY || ''
 const SECRET_KEY = process.env.SPACES_SECRET || ''
 const PRESENCE_TTL_MS = 45_000
+const BOARD_SCOPED_KEYS = ['boardTitle', 'boardShift', 'selectedDay', 'areaDefs', 'weeklyData', 'weeklyBoards', 'weeklyHistory', 'lockedWeeks', 'commentsBoard']
 
 const spacesConfigured = Boolean(BUCKET && ENDPOINT && ACCESS_KEY && SECRET_KEY)
 const presenceSessions = new Map()
@@ -38,6 +39,102 @@ app.use(express.json({ limit: '12mb' }))
 
 function clean(value) {
   return String(value || '').trim()
+}
+
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function cloneJson(value) {
+  if (value === undefined) return undefined
+  return JSON.parse(JSON.stringify(value))
+}
+
+function hasObjectKeys(value) {
+  return isPlainObject(value) && Object.keys(value).length > 0
+}
+
+function hasMeaningfulValue(value) {
+  if (Array.isArray(value)) return value.length > 0
+  if (isPlainObject(value)) return Object.values(value).some(hasMeaningfulValue)
+  return String(value ?? '').trim() !== ''
+}
+
+function hasDayData(day = {}) {
+  if (!isPlainObject(day)) return false
+  if (hasObjectKeys(day.assignments)) return true
+  if (Array.isArray(day.movementLog) && day.movementLog.length) return true
+  if (Array.isArray(day.attendanceLog) && day.attendanceLog.length) return true
+  if (hasMeaningfulValue(day.opsMetrics || {})) return true
+  if (hasMeaningfulValue(day.rackLists || {})) return true
+  if (hasMeaningfulValue(day.snapshots || {})) return true
+  return false
+}
+
+function hasWeekData(weeklyData = {}) {
+  if (!isPlainObject(weeklyData)) return false
+  return Object.values(weeklyData).some(hasDayData)
+}
+
+function hasBoardData(board = {}) {
+  if (!isPlainObject(board)) return false
+  if (hasWeekData(board.weeklyData)) return true
+  if (hasMeaningfulValue(board.weeklyBoards || {})) return true
+  if (hasMeaningfulValue(board.weeklyHistory || {})) return true
+  if (hasMeaningfulValue(board.commentsBoard || {})) return true
+  return false
+}
+
+function takeBoardScopedState(state = {}) {
+  const snapshot = {}
+  BOARD_SCOPED_KEYS.forEach((key) => {
+    if (state[key] !== undefined) snapshot[key] = cloneJson(state[key])
+  })
+  return snapshot
+}
+
+function mergeBoardScoped(existingBoard = {}, incomingBoard = {}) {
+  const existing = isPlainObject(existingBoard) ? existingBoard : {}
+  const incoming = isPlainObject(incomingBoard) ? incomingBoard : {}
+  if (hasBoardData(existing) && !hasBoardData(incoming)) return existing
+  return {
+    ...existing,
+    ...incoming,
+    weeklyBoards: { ...(existing.weeklyBoards || {}), ...(incoming.weeklyBoards || {}) },
+    weeklyHistory: { ...(existing.weeklyHistory || {}), ...(incoming.weeklyHistory || {}) },
+    lockedWeeks: { ...(existing.lockedWeeks || {}), ...(incoming.lockedWeeks || {}) },
+  }
+}
+
+function mergeIncomingState(existingState = {}, incomingState = {}) {
+  const existing = isPlainObject(existingState) ? existingState : {}
+  const incoming = isPlainObject(incomingState) ? incomingState : {}
+  const boardId = clean(incoming.currentBoardId || existing.currentBoardId || 'speed_day') || 'speed_day'
+  const existingStore = isPlainObject(existing.boardStore) ? existing.boardStore : {}
+  const incomingStore = isPlainObject(incoming.boardStore) ? incoming.boardStore : {}
+  const mergedStore = { ...existingStore }
+
+  Object.entries(incomingStore).forEach(([id, board]) => {
+    mergedStore[id] = mergeBoardScoped(existingStore[id], board)
+  })
+
+  mergedStore[boardId] = mergeBoardScoped(mergedStore[boardId], takeBoardScopedState(incoming))
+
+  const merged = {
+    ...existing,
+    ...incoming,
+    currentBoardId: boardId,
+    boardStore: mergedStore,
+  }
+
+  const activeBoard = mergedStore[boardId]
+  if (activeBoard) {
+    BOARD_SCOPED_KEYS.forEach((key) => {
+      if (activeBoard[key] !== undefined) merged[key] = cloneJson(activeBoard[key])
+    })
+  }
+
+  return merged
 }
 
 function getAdmins() {
@@ -235,7 +332,9 @@ app.get('/api/state', requireAuth, async (req, res) => {
 async function saveState(req, res) {
   try {
     if (!s3) return res.status(500).json({ error: 'Spaces is not configured' })
-    const state = req.body?.state || {}
+    const incomingState = req.body?.state || {}
+    const existingPayload = await getObjectJson(KEY, { state: {}, updatedAt: '' })
+    const state = mergeIncomingState(existingPayload.state || {}, incomingState)
     const savedAt = new Date().toISOString()
     const payload = { state, updatedAt: savedAt, updatedBy: req.user?.username || 'unknown' }
     await putObjectJson(KEY, payload)
