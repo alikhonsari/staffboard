@@ -18,6 +18,14 @@
     try { return JSON.parse(JSON.stringify(value ?? fallback)) } catch { return fallback }
   }
 
+  function readState() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}') } catch { return {} }
+  }
+
+  function writeState(state) {
+    localStorage.setItem(KEY, JSON.stringify(state))
+  }
+
   function monday(value) {
     const raw = /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : new Date().toISOString().slice(0, 10)
     const d = new Date(raw + 'T00:00:00')
@@ -113,17 +121,19 @@
     }
   }
 
-  function sanitize() {
+  function sanitize(targetBoardId) {
     const raw = localStorage.getItem(KEY)
-    if (!raw) return
+    if (!raw) return null
     try {
       const state = JSON.parse(raw)
-      const boardId = BOARDS[state.currentBoardId] ? state.currentBoardId : 'speed_day'
+      const currentBoardId = BOARDS[state.currentBoardId] ? state.currentBoardId : 'speed_day'
+      const boardId = BOARDS[targetBoardId] ? targetBoardId : currentBoardId
       const weekStartDate = monday(state.weekStartDate)
       const store = isObject(state.boardStore) ? safeCopy(state.boardStore, {}) : {}
-      if (!store[boardId]) store[boardId] = makeBoard(state, boardId)
+      store[currentBoardId] = makeBoard(state, currentBoardId)
       Object.keys(BOARDS).forEach((id) => { store[id] = cleanBoard(store[id], id, weekStartDate) })
-      const active = store[boardId]
+      const active = cleanBoard(store[boardId], boardId, weekStartDate)
+      store[boardId] = active
       const next = {
         ...state, ...active,
         currentBoardId: boardId,
@@ -131,12 +141,35 @@
         builderPool: Array.isArray(state.builderPool) ? state.builderPool : [],
         builderGroups: Array.isArray(state.builderGroups) ? state.builderGroups : [],
       }
-      localStorage.setItem(KEY, JSON.stringify(next))
+      writeState(next)
+      return next
     } catch {
       localStorage.setItem(KEY + '_bad_backup_' + Date.now(), raw)
       localStorage.removeItem(KEY)
+      return null
+    }
+  }
+
+  function switchBoard(boardId) {
+    if (!BOARDS[boardId]) return false
+    const current = readState().currentBoardId || 'speed_day'
+    sanitize(boardId)
+    if (boardId !== current) setTimeout(() => window.location.reload(), 0)
+    return boardId !== current
+  }
+
+  function catchBoardChange(event) {
+    const target = event.target
+    const select = target?.closest?.('select')
+    const value = select?.value
+    if (!BOARDS[value]) return
+    if (switchBoard(value)) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation()
     }
   }
 
   sanitize()
+  document.addEventListener('change', catchBoardChange, true)
 })()
