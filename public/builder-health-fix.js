@@ -73,11 +73,9 @@
     return { builders: roster, source: 'Master roster' }
   }
 
-  function badgeType(builder) {
-    const raw = String(builder?.badgeType || 'day').toLowerCase()
-    if (raw.includes('night')) return 'night'
-    if (raw.includes('green')) return 'green'
-    return 'day'
+  function isGreenBadge(builder) {
+    const raw = String(builder?.badgeType || '').toLowerCase()
+    return raw.includes('green')
   }
 
   function stats(state) {
@@ -99,9 +97,8 @@
       forklift: builders.filter((b) => b.trainedForklift).length,
       center: builders.filter((b) => b.trainedCenterRider).length,
       clamp: builders.filter((b) => b.trainedClampTruck).length,
-      blueDay: builders.filter((b) => badgeType(b) === 'day').length,
-      blueNight: builders.filter((b) => badgeType(b) === 'night').length,
-      green: builders.filter((b) => badgeType(b) === 'green').length,
+      blue: builders.filter((b) => !isGreenBadge(b)).length,
+      green: builders.filter((b) => isGreenBadge(b)).length,
     }
   }
 
@@ -127,7 +124,7 @@
     const st = stats(state)
     return `<div class="builder-health-title">Builder Roster Health · ${esc(st.shift)} · ${esc(st.dayName)} · ${esc(st.source)}</div><div class="builder-health-kpis">${[
       ['Total', st.total], ['Assigned Today', st.assignedToday], ['Active Today', st.activeToday], ['Trainers', st.trainers], ['Safety', st.safety], ['Line Leads', st.lineLeads],
-      ['TDR', st.tdr], ['Forklift', st.forklift], ['Center Rider', st.center], ['Clamp', st.clamp], ['Blue Day', st.blueDay], ['Blue Night', st.blueNight], ['Green', st.green],
+      ['TDR', st.tdr], ['Forklift', st.forklift], ['Center Rider', st.center], ['Clamp', st.clamp], ['Blue', st.blue], ['Green', st.green],
     ].map(([label, value]) => kpi(label, value)).join('')}</div><button class="builder-health-open" type="button">Open Builder Tools</button>`
   }
 
