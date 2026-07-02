@@ -9,16 +9,28 @@
     try { return JSON.parse(localStorage.getItem(KEY) || '{}') } catch { return {} }
   }
 
+  function visibleShiftText() {
+    return Array.from(document.querySelectorAll('.board-header .pill, .png-header-card .small, .title'))
+      .map((el) => String(el.textContent || '').trim().toLowerCase())
+      .join(' ')
+  }
+
+  function isNight(state) {
+    const visible = visibleShiftText()
+    if (visible.includes('day shift') || visible.includes('· day')) return false
+    if (visible.includes('night shift') || visible.includes('· night')) return true
+    return String(`${state.currentBoardId || ''} ${state.boardShift || ''}`).toLowerCase().includes('night')
+  }
+
   function dayName(state) {
+    const visible = visibleShiftText()
+    const found = DAYS.find((day) => visible.includes(day.toLowerCase()))
+    if (found) return found
     return DAYS.includes(state.selectedDay) ? state.selectedDay : 'Monday'
   }
 
   function dayData(state) {
     return state.weeklyData?.[dayName(state)] || { assignments: {}, opsMetrics: {}, rackLists: {} }
-  }
-
-  function isNight(state) {
-    return String(`${state.currentBoardId || ''} ${state.boardShift || ''}`).toLowerCase().includes('night')
   }
 
   function dayDate(state) {
@@ -29,11 +41,16 @@
     return d
   }
 
+  function fixedLabel(night) {
+    return night ? '1:30 AM' : '4:30 PM'
+  }
+
   function windowForShift(state) {
+    const night = isNight(state)
     const start = dayDate(state)
     const end = dayDate(state)
     const breakStart = dayDate(state)
-    if (isNight(state)) {
+    if (night) {
       start.setHours(17, 0, 0, 0)
       end.setDate(end.getDate() + 1)
       end.setHours(1, 30, 0, 0)
@@ -45,14 +62,14 @@
     }
     const breakEnd = new Date(breakStart)
     breakEnd.setMinutes(breakEnd.getMinutes() + 30)
-    return { start, end, breakStart, breakEnd }
+    return { start, end, breakStart, breakEnd, night }
   }
 
   function shiftClock(state) {
     const now = new Date()
     const w = windowForShift(state)
-    if (now <= w.start) return { worked: 0, remaining: SHIFT_HOURS, endLabel: label(w.end) }
-    if (now >= w.end) return { worked: SHIFT_HOURS, remaining: 0, endLabel: label(w.end) }
+    if (now <= w.start) return { worked: 0, remaining: SHIFT_HOURS, endLabel: fixedLabel(w.night) }
+    if (now >= w.end) return { worked: SHIFT_HOURS, remaining: 0, endLabel: fixedLabel(w.night) }
     const minutesSinceStart = (now - w.start) / 60000
     const minutesToEnd = (w.end - now) / 60000
     let breakElapsed = 0
@@ -64,12 +81,8 @@
     return {
       worked: Math.max(0, Math.min(SHIFT_HOURS, (minutesSinceStart - breakElapsed) / 60)),
       remaining: Math.max(0, Math.min(SHIFT_HOURS, (minutesToEnd - breakRemaining) / 60)),
-      endLabel: label(w.end),
+      endLabel: fixedLabel(w.night),
     }
-  }
-
-  function label(date) {
-    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
   }
 
   function num(value) {
