@@ -29,10 +29,10 @@
     const style = document.createElement('style')
     style.id = 'share-png-float-style'
     style.textContent = `
-      .share-png-float{position:fixed;right:14px;top:58px;z-index:100060;border:0;border-radius:999px;background:#2563eb;color:white;font:900 12px Arial;padding:9px 13px;box-shadow:0 12px 30px rgba(37,99,235,.26);cursor:pointer}
-      .share-png-float:hover{filter:brightness(1.08)}
-      body[data-theme="dark"] .share-png-float{background:#7dd3fc;color:#071421}
-      @media(max-width:720px){.share-png-float{right:12px;top:104px;font-size:12px;padding:9px 12px}}
+      .share-png-float{position:fixed!important;right:14px!important;top:58px!important;left:auto!important;bottom:auto!important;z-index:100060!important;width:auto!important;min-width:0!important;max-width:none!important;height:auto!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;border:0!important;border-radius:999px!important;background:#2563eb!important;color:white!important;font:900 12px Arial!important;line-height:1!important;padding:9px 13px!important;box-shadow:0 12px 30px rgba(37,99,235,.26)!important;cursor:pointer!important}
+      .share-png-float:hover{filter:brightness(1.08)!important}
+      body[data-theme="dark"] .share-png-float{background:#7dd3fc!important;color:#071421!important}
+      @media(max-width:720px){.share-png-float{right:12px!important;top:104px!important;font-size:12px!important;padding:9px 12px!important;width:auto!important}}
     `
     document.head.appendChild(style)
   }
