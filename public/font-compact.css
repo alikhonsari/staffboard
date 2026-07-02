@@ -1,0 +1,21 @@
+html{font-size:14.5px}
+body{font-size:.92rem}
+.title{font-size:1.5rem!important}
+h1{font-size:1.28rem!important}
+h2{font-size:.92rem!important}
+.kpi-value,.summary-value{font-size:1.18rem!important}
+.ops-value{font-size:1.05rem!important}
+.kpi-label,.ops-label,.summary-label,.table-kicker{font-size:.68rem!important}
+.chip{font-size:.72rem!important;padding:7px 10px!important}
+.numchip{height:22px;min-width:22px;font-size:.72rem!important}
+.area-title{font-size:.92rem!important}
+.area-meta,.tag-line,.small,.muted{font-size:.72rem!important}
+.tag-name{font-size:.88rem!important}
+.status,.tiny,.mini-btn{font-size:.62rem!important}
+input,select,textarea,button{font-size:.88rem!important;padding:8px 10px!important}
+label{font-size:.74rem!important}
+th{font-size:.66rem!important;padding:10px 12px!important}
+td{font-size:.82rem!important;padding:10px 12px!important}
+.card,.section,.kpi,.ops,.summary-card,.snapshot-panel{padding:11px!important}
+.area-head,.area-body{padding:10px!important}
+@media(max-width:720px){html{font-size:14px}.title{font-size:1.35rem!important}.app{padding:10px!important;gap:10px!important}.sidebar,.main{border-radius:18px!important}}
