@@ -12,14 +12,6 @@
     return ''
   }
 
-  function loadScriptOnce(src, marker) {
-    if (document.querySelector(`[${marker}]`)) return
-    const script = document.createElement('script')
-    script.src = src
-    script.setAttribute(marker, 'true')
-    document.body.appendChild(script)
-  }
-
   function addEnhancementFiles() {
     if (!document.querySelector('[data-layout-v2-file]')) {
       const link = document.createElement('link')
@@ -28,8 +20,6 @@
       link.dataset.layoutV2File = 'true'
       document.head.appendChild(link)
     }
-    loadScriptOnce('/manager-tph.js', 'data-manager-tph-file')
-    loadScriptOnce('/share-png.js?v=restored-2', 'data-share-png-file')
   }
 
   function addStyle() {
