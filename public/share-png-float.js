@@ -1,19 +1,27 @@
 (() => {
   function loadSharePng() {
-    if (document.querySelector('[data-share-png-file]')) return
-    const script = document.createElement('script')
-    script.src = '/share-png.js?v=restored-3'
-    script.dataset.sharePngFile = 'true'
-    document.body.appendChild(script)
+    if (window.StaffBoardSharePNG) return Promise.resolve()
+    if (!document.querySelector('[data-share-png-safe-file]')) {
+      const script = document.createElement('script')
+      script.src = '/share-png-safe.js?v=1'
+      script.dataset.sharePngSafeFile = 'true'
+      document.body.appendChild(script)
+    }
+    return new Promise((resolve) => {
+      const wait = setInterval(() => {
+        if (window.StaffBoardSharePNG) {
+          clearInterval(wait)
+          resolve()
+        }
+      }, 50)
+      setTimeout(() => { clearInterval(wait); resolve() }, 1500)
+    })
   }
 
-  function clickSharePng() {
-    loadSharePng()
-    setTimeout(() => {
-      const button = document.querySelector('[data-sharepng-button]')
-      if (button) return button.click()
-      alert('Share PNG is loading. Tap Share PNG again in a second.')
-    }, 350)
+  async function clickSharePng() {
+    await loadSharePng()
+    if (window.StaffBoardSharePNG?.open) window.StaffBoardSharePNG.open()
+    else alert('Share PNG is loading. Tap Share PNG again in a second.')
   }
 
   function addStyle() {
@@ -31,7 +39,6 @@
 
   function ensure() {
     addStyle()
-    loadSharePng()
     if (document.querySelector('[data-share-png-float]')) return
     const button = document.createElement('button')
     button.type = 'button'
