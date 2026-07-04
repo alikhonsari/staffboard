@@ -4,8 +4,8 @@
   "version": "1.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js",
+    "dev": "node server-guarded.js",
+    "start": "node server-guarded.js",
     "build": "vite build",
     "check": "vite build",
     "clean": "rm -rf dist node_modules/.vite"
