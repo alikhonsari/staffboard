@@ -11,6 +11,14 @@ function versionFrom(payload) {
   return String(payload?.updatedAt || '')
 }
 
+function conflict(res, message) {
+  return res.status(409).json({
+    error: message,
+    conflict: true,
+    currentUpdatedAt: currentStateVersion,
+  })
+}
+
 function wrapStateGet(handler) {
   return function guardedStateGet(req, res, next) {
     const originalJson = res.json.bind(res)
@@ -23,8 +31,14 @@ function wrapStateGet(handler) {
   }
 }
 
-function runQueued(handler, req, res, next) {
+function runQueued(handler, req, res, next, baseVersion) {
   const job = saveQueue.then(() => new Promise((resolve, reject) => {
+    if (currentStateVersion !== null && baseVersion !== currentStateVersion) {
+      conflict(res, 'The board changed in another session. Reload the latest version before editing.')
+      resolve()
+      return
+    }
+
     const originalJson = res.json.bind(res)
     res.json = (payload) => {
       const version = versionFrom(payload)
@@ -55,22 +69,10 @@ function wrapStateSave(handler) {
     const baseVersion = String(req.body?.baseUpdatedAt || '')
 
     if (!hasBaseVersion) {
-      return res.status(409).json({
-        error: 'This browser session is outdated. Refresh before editing.',
-        conflict: true,
-        currentUpdatedAt: currentStateVersion,
-      })
+      return conflict(res, 'This browser session is outdated. Refresh before editing.')
     }
 
-    if (currentStateVersion !== null && baseVersion !== currentStateVersion) {
-      return res.status(409).json({
-        error: 'The board changed in another session. Reload the latest version before editing.',
-        conflict: true,
-        currentUpdatedAt: currentStateVersion,
-      })
-    }
-
-    return runQueued(handler, req, res, next)
+    return runQueued(handler, req, res, next, baseVersion)
   }
 }
 
