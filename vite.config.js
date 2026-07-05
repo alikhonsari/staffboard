@@ -4,9 +4,10 @@ import { shiftCorePlugin } from './shift-core-plugin.js'
 import { scheduledStatusPlugin } from './scheduled-status-plugin.js'
 import { builderTagPlugin } from './builder-tag-plugin.js'
 import { reportExportPlugin } from './report-export-plugin.js'
+import { reportShiftFixPlugin } from './report-shift-fix-plugin.js'
 
 export default defineConfig({
-  plugins: [shiftCorePlugin(), reportExportPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
+  plugins: [shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
