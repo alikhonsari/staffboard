@@ -28,7 +28,6 @@
       link.dataset.layoutV2File = 'true'
       document.head.appendChild(link)
     }
-    loadScriptOnce('/weekly-pdf-extra.js?v=1', 'data-weekly-pdf-extra-file')
     loadScriptOnce('/clock-status-auto.js?v=1', 'data-clock-status-auto-file')
   }
 
