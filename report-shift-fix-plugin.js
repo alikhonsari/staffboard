@@ -31,6 +31,10 @@ export function reportShiftFixPlugin() {
         `shiftEndForDay(state.selectedDay, state.weekStartDate, ${activeShift})`
       )
       next = next.replaceAll(
+        'isNightShiftLabel(state.boardShift)',
+        `isNightShiftLabel(${activeShift})`
+      )
+      next = next.replaceAll(
         'computeHoursForAssignment(assignment, day, state.weekStartDate, state.boardShift)',
         `computeHoursForAssignment(assignment, day, state.weekStartDate, ${activeShift})`
       )
