@@ -7,6 +7,70 @@ export function weekIsolationPlugin() {
 
       let next = code
 
+      if (!next.includes('function repairWeek28Leak(saved)')) {
+        const helper = `function repairWeek28Leak(saved) {
+  if (!saved || saved.week28LeakRepairV2) return saved
+
+  const repaired = clone(saved)
+  const weekKey = '2026-07-06'
+  const blankWeek = () => blankWeekData()
+
+  repaired.weeklyBoards = {
+    ...(repaired.weeklyBoards || {}),
+    [weekKey]: blankWeek(),
+  }
+
+  if (toMonday(repaired.weekStartDate || defaultState.weekStartDate) === weekKey) {
+    repaired.weeklyData = blankWeek()
+  }
+
+  if (repaired.weeklyHistory && typeof repaired.weeklyHistory === 'object') {
+    const history = { ...repaired.weeklyHistory }
+    delete history[weekKey]
+    repaired.weeklyHistory = history
+  }
+
+  if (repaired.lockedWeeks && typeof repaired.lockedWeeks === 'object') {
+    const locked = { ...repaired.lockedWeeks }
+    delete locked[weekKey]
+    repaired.lockedWeeks = locked
+  }
+
+  const nextBoardStore = {}
+  Object.entries(repaired.boardStore || {}).forEach(([boardId, board]) => {
+    const nextBoard = { ...(board || {}) }
+    nextBoard.weeklyBoards = {
+      ...(nextBoard.weeklyBoards || {}),
+      [weekKey]: blankWeek(),
+    }
+
+    if (nextBoard.weekStartDate && toMonday(nextBoard.weekStartDate) === weekKey) {
+      nextBoard.weeklyData = blankWeek()
+    }
+
+    if (nextBoard.weeklyHistory && typeof nextBoard.weeklyHistory === 'object') {
+      const history = { ...nextBoard.weeklyHistory }
+      delete history[weekKey]
+      nextBoard.weeklyHistory = history
+    }
+
+    if (nextBoard.lockedWeeks && typeof nextBoard.lockedWeeks === 'object') {
+      const locked = { ...nextBoard.lockedWeeks }
+      delete locked[weekKey]
+      nextBoard.lockedWeeks = locked
+    }
+
+    nextBoardStore[boardId] = nextBoard
+  })
+  repaired.boardStore = nextBoardStore
+  repaired.week28LeakRepairV2 = true
+  return repaired
+}
+
+`
+        next = next.replace('function normalizeState(saved) {', helper + 'function normalizeState(saved) {\n  saved = repairWeek28Leak(saved)')
+      }
+
       const oldNormalize = `  state.weeklyData = normalizeWeekData(saved?.weeklyData || {})
 
   const rawBoards = saved?.weeklyBoards && typeof saved.weeklyBoards === 'object'
