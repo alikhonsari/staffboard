@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { weekIsolationPlugin } from './week-isolation-plugin.js'
+import { clearDayPlugin } from './clear-day-plugin.js'
 import { shiftCorePlugin } from './shift-core-plugin.js'
 import { scheduledStatusPlugin } from './scheduled-status-plugin.js'
 import { builderTagPlugin } from './builder-tag-plugin.js'
@@ -13,7 +14,7 @@ import { pdfWeeklySectionPlugin } from './pdf-weekly-section-plugin.js'
 import { pdfFooterPlugin } from './pdf-footer-plugin.js'
 
 export default defineConfig({
-  plugins: [weekIsolationPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
+  plugins: [weekIsolationPlugin(), clearDayPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
