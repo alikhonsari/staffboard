@@ -9,7 +9,7 @@ export function weekIsolationPlugin() {
 
       if (!next.includes('function repairWeek28Leak(saved)')) {
         const helper = `function repairWeek28Leak(saved) {
-  if (!saved || saved.week28LeakRepairV2) return saved
+  if (!saved || saved.week28LeakRepairV3) return saved
 
   const repaired = clone(saved)
   const weekKey = '2026-07-06'
@@ -63,7 +63,7 @@ export function weekIsolationPlugin() {
     nextBoardStore[boardId] = nextBoard
   })
   repaired.boardStore = nextBoardStore
-  repaired.week28LeakRepairV2 = true
+  repaired.week28LeakRepairV3 = true
   return repaired
 }
 
