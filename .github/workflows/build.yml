@@ -18,6 +18,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Validate staffing PNG scripts
+        run: |
+          node --check public/share-png-safe.js
+          node --check public/share-png-float.js
       - name: Install dependencies
         run: npm install
       - name: Build StaffBoard
