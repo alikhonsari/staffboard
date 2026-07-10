@@ -34,7 +34,7 @@ export function laborShareExcelPlugin() {
 
 function basicAssignmentHours(assignment = {}) {
   const parse = (value) => {
-    const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/)
+    const match = String(value || '').match(/^(\\d{1,2}):(\\d{2})$/)
     return match ? Number(match[1]) + Number(match[2]) / 60 : null
   }
   const start = parse(assignment.clockInTime)
@@ -106,7 +106,8 @@ function laborAllocationSummary({ state, dayData, builderPool }) {
         `  const allocation = laborAllocationSummary({ state, dayData: dayState, builderPool: state.builderPool || activeBuilders })
   const laborRows = laborShareRowsForDay({ state, dayData: dayState, builderPool: state.builderPool || activeBuilders, day: selectedDay, weekStartDate: state.weekStartDate, computeHoursForAssignment })
   const laborHours = laborRows.reduce((sum, row) => sum + number(row.labor_share_hours), 0)
-  const calc = { ...opsMetrics(dayState, rackWeight, allocation.productionHC || totalHeadCount, shift), ...metrics }`
+  const reportTPHHeadcount = String(state.currentBoardId || '').startsWith('speed_') ? allocation.productionHC : totalHeadCount
+  const calc = { ...opsMetrics(dayState, rackWeight, reportTPHHeadcount, shift), ...metrics }`
       )
       next = next.replace(
         "    ['Generated', new Date().toLocaleString()], ['Current Time', shift.nowLabel],",
@@ -138,6 +139,16 @@ function laborAllocationSummary({ state, dayData, builderPool }) {
         "  appendDataSheet(wb, 'Attendance History', (dayState.attendanceLog || []).map((a) => ({ timestamp: a.timestamp, clock_time: a.clock_time, builder: a.builder, event: a.event, note: a.note })), { title: `${selectedDay} Attendance History`, meta, accent: COLORS.red })\n  appendDataSheet(wb, 'Labor Share Detail', laborRows, { title: `${selectedDay} Labor Share Detail`, subtitle: 'Builders and line leads excluded from SPEED Production HC', meta, accent: COLORS.orange })"
       )
 
+      next = next.replace(
+        `    const hc = statusCounts(dayData, builderPool)
+    const shift = shiftInfo(day, state.weekStartDate, state.boardShift)
+    const ops = opsMetrics(dayData, RACK_WEIGHT, hc.active, shift)`,
+        `    const hc = statusCounts(dayData, builderPool)
+    const allocation = laborAllocationSummary({ state, dayData, builderPool })
+    const shift = shiftInfo(day, state.weekStartDate, state.boardShift)
+    const dayTPHHeadcount = String(state.currentBoardId || '').startsWith('speed_') ? allocation.productionHC : hc.active
+    const ops = opsMetrics(dayData, RACK_WEIGHT, dayTPHHeadcount, shift)`
+      )
       next = next.replace(
         '  const allRacks = weekDays.flatMap((day) => rackRowsForDay(getDayData(day), day))',
         `  const allRacks = weekDays.flatMap((day) => rackRowsForDay(getDayData(day), day))
