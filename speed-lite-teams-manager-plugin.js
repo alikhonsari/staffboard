@@ -4,8 +4,10 @@ export function speedLiteTeamsManagerPlugin() {
     enforce: 'pre',
     transform(code, id) {
       if (!id.endsWith('/src/App.jsx') || code.includes('Speed Lite Team Health')) return null
-      const marker = `          <div className="summary-card-block card">
-             <div className="table-title-row"><div><div className="table-kicker">Read-only Day vs Night Comparison</div>`
+      const titleMarker = '<div className="table-kicker">Read-only Day vs Night Comparison</div>'
+      const titleIndex = code.indexOf(titleMarker)
+      const insertIndex = titleIndex >= 0 ? code.lastIndexOf('<div className="summary-card-block card">', titleIndex) : -1
+      if (insertIndex < 0) return null
       const panel = `          {speedLiteTeamsEnabled ? (
             <div className="summary-card-block card">
               <div className="table-title-row"><div><div className="table-kicker">Speed Lite Team Health</div><div className="small">Current SPEED board, shift, week, and selected day only. Team hours are a breakdown of Speed Lite production hours, not additional hours.</div></div><span className="pill">Speed Lite HC {speedLiteTeamMetrics.headcount}</span></div>
@@ -17,8 +19,8 @@ export function speedLiteTeamsManagerPlugin() {
           ) : null}
 
 `
-      const next = code.replace(marker, panel + marker)
-      return next === code ? null : { code: next, map: null }
+      const next = code.slice(0, insertIndex) + panel + code.slice(insertIndex)
+      return { code: next, map: null }
     },
   }
 }
