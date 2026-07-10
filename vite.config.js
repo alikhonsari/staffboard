@@ -5,6 +5,7 @@ import { clearDayPlugin } from './clear-day-plugin.js'
 import { enhancementSuitePlugin } from './enhancement-suite-plugin.js'
 import { resetWeekScopePlugin } from './reset-week-scope-plugin.js'
 import { shiftScopeCorePlugin } from './shift-scope-core-plugin.js'
+import { weekMetadataScopePlugin } from './week-metadata-scope-plugin.js'
 import { shiftOpsLogicPlugin } from './shift-ops-logic-plugin.js'
 import { shiftOpsSyntaxFixPlugin } from './shift-ops-syntax-fix-plugin.js'
 import { exportContextPlugin } from './export-context-plugin.js'
@@ -29,7 +30,7 @@ import { pdfWeeklySectionPlugin } from './pdf-weekly-section-plugin.js'
 import { pdfFooterPlugin } from './pdf-footer-plugin.js'
 
 export default defineConfig({
-  plugins: [weekIsolationPlugin(), clearDayPlugin(), enhancementSuitePlugin(), resetWeekScopePlugin(), shiftScopeCorePlugin(), shiftOpsLogicPlugin(), shiftOpsSyntaxFixPlugin(), exportContextPlugin(), enhancementNavPlugin(), managerTabPlugin(), auditTabPlugin(), toolsTabPlugin(), suggestionsTabPlugin(), shiftContextUxPlugin(), analysisScopePlugin(), auditAdminPlugin(), auditActionsPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
+  plugins: [weekIsolationPlugin(), clearDayPlugin(), enhancementSuitePlugin(), resetWeekScopePlugin(), shiftScopeCorePlugin(), weekMetadataScopePlugin(), shiftOpsLogicPlugin(), shiftOpsSyntaxFixPlugin(), exportContextPlugin(), enhancementNavPlugin(), managerTabPlugin(), auditTabPlugin(), toolsTabPlugin(), suggestionsTabPlugin(), shiftContextUxPlugin(), analysisScopePlugin(), auditAdminPlugin(), auditActionsPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
