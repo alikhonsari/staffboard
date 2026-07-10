@@ -3,7 +3,7 @@
     if (window.StaffBoardSharePNG) return Promise.resolve()
     if (!document.querySelector('[data-share-png-safe-file]')) {
       const script = document.createElement('script')
-      script.src = '/share-png-safe.js?v=1'
+      script.src = '/share-png-safe.js?v=2'
       script.dataset.sharePngSafeFile = 'true'
       document.body.appendChild(script)
     }
