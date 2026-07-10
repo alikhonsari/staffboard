@@ -44,9 +44,25 @@ export function laborShareAnalysisPlugin() {
     return { hours, selectedDayHeadcount }
   }
 
-  const laborShareShiftComparison = [activeBoardType + '_day', activeBoardType + '_night'].map((boardId) => {
-    const boardState = getScopedBoardState(boardId)
-    const weekData = getScopedWeekData(boardState)
+  const laborShareActiveBoardType = String(state.currentBoardId || 'speed_day').split('_')[0]
+  const getLaborShareScopedBoardState = (boardId) => {
+    const preset = BOARD_PRESETS[boardId]
+    if (!preset) return null
+    if (boardId === state.currentBoardId) return { ...state, boardShift: preset.shift, boardTitle: preset.title }
+    const stored = state.boardStore?.[boardId] || {}
+    return { ...stored, currentBoardId: boardId, boardShift: preset.shift, boardTitle: preset.title, areaDefs: stored.areaDefs || preset.areaDefs }
+  }
+  const getLaborShareScopedWeekData = (boardState) => {
+    if (!boardState) return blankWeekData()
+    const weekKey = toMonday(state.weekStartDate)
+    if (boardState.weeklyBoards?.[weekKey]) return clone(boardState.weeklyBoards[weekKey])
+    if (boardState.weekStartDate && toMonday(boardState.weekStartDate) === weekKey && boardState.weeklyData) return clone(boardState.weeklyData)
+    return blankWeekData()
+  }
+
+  const laborShareShiftComparison = [laborShareActiveBoardType + '_day', laborShareActiveBoardType + '_night'].map((boardId) => {
+    const boardState = getLaborShareScopedBoardState(boardId)
+    const weekData = getLaborShareScopedWeekData(boardState)
     const summary = calculateLaborShareForWeek(weekData, state.weekStartDate, boardId, boardState?.areaDefs)
     return { boardId, shift: BOARD_PRESETS[boardId]?.shift || boardId, ...summary }
   })
