@@ -66,8 +66,6 @@ export function laborShareLogicPlugin() {
     return rows
   }, [state.builderPool, state.weeklyData, state.weekStartDate, effectiveAreaDefsTyped])
   const weeklyLaborShareHours = weeklyLaborShareRows.reduce((sum, row) => sum + row.hours, 0)
-  const weeklyProductionHours = builderWeeklyAreaHours ? builderWeeklyAreaHours.reduce((sum, row) => sum + row.areas.filter(([area]) => areaTypeFor(area) === 'production').reduce((subtotal, [, hours]) => subtotal + Number(hours || 0), 0), 0) : 0
-  const weeklySupportHours = builderWeeklyAreaHours ? builderWeeklyAreaHours.reduce((sum, row) => sum + row.areas.filter(([area]) => areaTypeFor(area) === 'support').reduce((subtotal, [, hours]) => subtotal + Number(hours || 0), 0), 0) : 0
   const laborShareStats = {
     totalShiftHeadcount: totalHeadCount,
     speedProductionHeadcount,
