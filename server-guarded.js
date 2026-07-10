@@ -11,6 +11,7 @@ const BOARD_RULES = {
   bodega_day: { shift: 'Day Shift', title: 'Bodega Staffing Board' },
   bodega_night: { shift: 'Night Shift', title: 'Bodega Staffing Board' },
 }
+const AREA_TYPES = new Set(['production', 'support', 'labor_share', 'unassigned'])
 
 const originalGet = express.application.get
 const originalPut = express.application.put
@@ -33,6 +34,45 @@ function invalidState(res, message) {
     error: message,
     invalidState: true,
   })
+}
+
+function inferredAreaType(name) {
+  const normalized = String(name || '').trim().toLowerCase()
+  if (!normalized || normalized === 'unassigned') return 'unassigned'
+  if (normalized === 'fa' || normalized === 'fa metal removal') return 'labor_share'
+  if (['shipping', 'eos pull racks', 'projects', 'learning', '1:1'].includes(normalized)) return 'support'
+  return 'production'
+}
+
+function normalizeAreaDefinitions(scope, boardId, repairs) {
+  if (!scope || typeof scope !== 'object') return
+  const input = Array.isArray(scope.areaDefs) ? scope.areaDefs : []
+  const normalized = input
+    .filter((area) => area && typeof area === 'object' && String(area.name || '').trim())
+    .map((area) => {
+      const expectedType = AREA_TYPES.has(area.areaType) ? area.areaType : inferredAreaType(area.name)
+      if (area.areaType !== expectedType) repairs.push(`${boardId} ${area.name} area type -> ${expectedType}`)
+      return {
+        ...area,
+        name: String(area.name).trim(),
+        areaType: expectedType,
+        capacity: area.capacity ?? '',
+        note: String(area.note || ''),
+      }
+    })
+
+  if (String(boardId).startsWith('speed_')) {
+    const names = new Set(normalized.map((area) => area.name.toLowerCase()))
+    if (!names.has('fa')) {
+      normalized.push({ name: 'FA', areaType: 'labor_share', capacity: '', note: 'Labor share outside SPEED production' })
+      repairs.push(`${boardId} added FA labor-share area`)
+    }
+    if (!names.has('fa metal removal')) {
+      normalized.push({ name: 'FA Metal Removal', areaType: 'labor_share', capacity: '', note: 'Labor share outside SPEED production' })
+      repairs.push(`${boardId} added FA Metal Removal labor-share area`)
+    }
+  }
+  scope.areaDefs = normalized
 }
 
 function validateAndRepairScope(req, res) {
@@ -58,6 +98,7 @@ function validateAndRepairScope(req, res) {
     state.boardTitle = activeRule.title
     repairs.push(`active title -> ${activeRule.title}`)
   }
+  normalizeAreaDefinitions(state, boardId, repairs)
 
   if (!state.weekStartDate || typeof state.weekStartDate !== 'string') {
     invalidState(res, 'Active week is missing. Refresh before saving.')
@@ -87,6 +128,7 @@ function validateAndRepairScope(req, res) {
       stored.boardTitle = rule.title
       repairs.push(`${storedId} title -> ${rule.title}`)
     }
+    normalizeAreaDefinitions(stored, storedId, repairs)
     if (!stored.weeklyBoards || typeof stored.weeklyBoards !== 'object' || Array.isArray(stored.weeklyBoards)) {
       stored.weeklyBoards = {}
       repairs.push(`${storedId} initialized weeklyBoards`)
@@ -94,6 +136,13 @@ function validateAndRepairScope(req, res) {
     if (!Array.isArray(stored.dayTemplates)) stored.dayTemplates = []
     if (!Array.isArray(stored.auditLog)) stored.auditLog = []
   })
+
+  if (Array.isArray(state.builderPool)) {
+    state.builderPool = state.builderPool.map((builder) => ({
+      ...builder,
+      countsAsProductionLabor: !!builder.countsAsProductionLabor,
+    }))
+  }
 
   if (repairs.length) {
     console.warn('[StaffBoard scope validation] Safe repairs applied:', repairs.join('; '))
