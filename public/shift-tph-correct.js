@@ -94,20 +94,36 @@
     return String(text || '').split(/\r?\n|,|;/).map((line) => line.trim()).filter(Boolean)
   }
 
-  function totalHeadcount(state, d) {
-    const manual = num(d.opsMetrics?.manualHeadCount)
-    if (manual > 0) return manual
+  function areaType(state, areaName) {
+    const name = areaName || 'Unassigned'
+    const explicit = (state.areaDefs || []).find((area) => area.name === name)?.areaType
+    if (explicit) return explicit
+    const normalized = String(name).trim().toLowerCase()
+    if (!normalized || normalized === 'unassigned') return 'unassigned'
+    if (normalized === 'fa' || normalized === 'fa metal removal') return 'labor_share'
+    if (['shipping', 'eos pull racks', 'projects', 'learning', '1:1'].includes(normalized)) return 'support'
+    return 'production'
+  }
+
+  function tphHeadcount(state, d) {
     const builders = new Map((state.builderPool || []).map((b) => [b.id, b]))
-    return Object.entries(d.assignments || {}).filter(([id, a]) => {
-      const status = a.status || 'Present'
-      return STAFFED.has(status) && !builders.get(id)?.isLineLead
+    const isSpeed = String(state.currentBoardId || '').startsWith('speed_')
+    if (!isSpeed) {
+      const manual = num(d.opsMetrics?.manualHeadCount)
+      if (manual > 0) return manual
+      return Object.entries(d.assignments || {}).filter(([, assignment]) => STAFFED.has(assignment.status || 'Present')).length
+    }
+    return Object.entries(d.assignments || {}).filter(([id, assignment]) => {
+      const status = assignment.status || 'Present'
+      const profile = builders.get(id) || {}
+      return STAFFED.has(status) && areaType(state, assignment.area || 'Unassigned') === 'production' && (!profile.isLineLead || profile.countsAsProductionLabor)
     }).length
   }
 
   function metrics(state) {
     const d = dayData(state)
     const clock = shiftClock(state)
-    const hc = totalHeadcount(state, d)
+    const hc = tphHeadcount(state, d)
     const recoveryGoal = num(d.opsMetrics?.targetRackMediaRecovery)
     const recoveryDone = Math.max(num(d.opsMetrics?.racksProcessed), parseRackList(d.rackLists?.processed).length)
     const prepGoal = num(d.opsMetrics?.targetRackPrep)
@@ -151,7 +167,7 @@
     if (statusSub) {
       const gap = m.live - m.required
       const perf = m.weightedDone <= 0 ? 'Not started' : gap >= 0.25 ? 'Ahead' : gap >= -0.25 ? 'On Target' : 'Needs Recovery'
-      statusSub.textContent = `Required ${m.required.toFixed(1)} · Live ${m.live.toFixed(1)} · ${perf}${perf !== 'Not started' ? ` ${gap >= 0 ? '+' : ''}${gap.toFixed(1)}` : ''}`
+      statusSub.textContent = `Required ${m.required.toFixed(1)} · Live ${m.live.toFixed(1)} · Production HC ${m.hc} · ${perf}${perf !== 'Not started' ? ` ${gap >= 0 ? '+' : ''}${gap.toFixed(1)}` : ''}`
     }
   }
 
