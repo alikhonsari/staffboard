@@ -1,0 +1,1 @@
+Temporary CI trigger for team-aware staffing PNG validation.
