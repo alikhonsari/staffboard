@@ -9,6 +9,7 @@ import { auditTabPlugin } from './audit-tab-plugin.js'
 import { toolsTabPlugin } from './tools-tab-plugin.js'
 import { suggestionsTabPlugin } from './suggestions-tab-plugin.js'
 import { auditAdminPlugin } from './audit-admin-plugin.js'
+import { auditActionsPlugin } from './audit-actions-plugin.js'
 import { shiftCorePlugin } from './shift-core-plugin.js'
 import { scheduledStatusPlugin } from './scheduled-status-plugin.js'
 import { builderTagPlugin } from './builder-tag-plugin.js'
@@ -21,7 +22,7 @@ import { pdfWeeklySectionPlugin } from './pdf-weekly-section-plugin.js'
 import { pdfFooterPlugin } from './pdf-footer-plugin.js'
 
 export default defineConfig({
-  plugins: [weekIsolationPlugin(), clearDayPlugin(), enhancementSuitePlugin(), enhancementNavPlugin(), managerTabPlugin(), auditTabPlugin(), toolsTabPlugin(), suggestionsTabPlugin(), auditAdminPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
+  plugins: [weekIsolationPlugin(), clearDayPlugin(), enhancementSuitePlugin(), enhancementNavPlugin(), managerTabPlugin(), auditTabPlugin(), toolsTabPlugin(), suggestionsTabPlugin(), auditAdminPlugin(), auditActionsPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
