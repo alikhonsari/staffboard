@@ -13,7 +13,6 @@ import { laborShareComparisonPlugin } from './labor-share-comparison-plugin.js'
 import { laborShareLogicPlugin } from './labor-share-logic-plugin.js'
 import { speedLiteTeamsCorePlugin } from './speed-lite-teams-core-plugin.js'
 import { speedLiteTeamsLogicPlugin } from './speed-lite-teams-logic-plugin.js'
-import { speedLiteTeamsOrderPlugin } from './speed-lite-teams-order-plugin.js'
 import { crossBoardAuditPlugin } from './cross-board-audit-plugin.js'
 import { exportContextPlugin } from './export-context-plugin.js'
 import { excelScopePlugin } from './excel-scope-plugin.js'
@@ -52,12 +51,13 @@ import { pdfWeeklySectionPlugin } from './pdf-weekly-section-plugin.js'
 import { pdfFooterPlugin } from './pdf-footer-plugin.js'
 import { laborSharePdfPlugin } from './labor-share-pdf-plugin.js'
 import { speedLiteTeamsPdfPlugin } from './speed-lite-teams-pdf-plugin.js'
+import { speedLiteTeamsRuntimeFixPlugin } from './speed-lite-teams-runtime-fix-plugin.js'
 import { speedLiteTeamsValidationPlugin } from './speed-lite-teams-validation-plugin.js'
 import { builderTagPlugin } from './builder-tag-plugin.js'
 import { scheduledStatusPlugin } from './scheduled-status-plugin.js'
 
 export default defineConfig({
-  plugins: [weekIsolationPlugin(), clearDayPlugin(), enhancementSuitePlugin(), resetWeekScopePlugin(), shiftScopeCorePlugin(), laborShareCorePlugin(), weekMetadataScopePlugin(), shiftOpsLogicPlugin(), shiftOpsSyntaxFixPlugin(), laborShareComparisonPlugin(), laborShareLogicPlugin(), speedLiteTeamsCorePlugin(), speedLiteTeamsLogicPlugin(), speedLiteTeamsOrderPlugin(), crossBoardAuditPlugin(), exportContextPlugin(), excelScopePlugin(), enhancementNavPlugin(), auditTabPlugin(), toolsTabPlugin(), speedLiteTeamsTemplatePlugin(), shiftContextUxPlugin(), analysisScopePlugin(), laborShareAreaAdminPlugin(), laborShareMovementPlugin(), speedLiteTeamsMovementPlugin(), laborShareBoardUiPlugin(), speedLiteTeamsUiPlugin(), laborShareAnalysisPlugin(), speedLiteTeamsAnalysisPlugin(), speedLiteTeamsAnalysisUiFixPlugin(), laborShareSuggestionsPlugin(), speedLiteTeamsSuggestionsPlugin(), laborShareSlackPlugin(), speedLiteTeamsSlackPlugin(), managerTabPlugin(), speedLiteTeamsManagerPlugin(), suggestionsTabPlugin(), auditAdminPlugin(), auditActionsPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), laborShareExcelPlugin(), speedLiteTeamsExcelPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), laborSharePdfPlugin(), speedLiteTeamsPdfPlugin(), speedLiteTeamsValidationPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
+  plugins: [weekIsolationPlugin(), clearDayPlugin(), enhancementSuitePlugin(), resetWeekScopePlugin(), shiftScopeCorePlugin(), laborShareCorePlugin(), weekMetadataScopePlugin(), shiftOpsLogicPlugin(), shiftOpsSyntaxFixPlugin(), laborShareComparisonPlugin(), laborShareLogicPlugin(), speedLiteTeamsCorePlugin(), speedLiteTeamsLogicPlugin(), crossBoardAuditPlugin(), exportContextPlugin(), excelScopePlugin(), enhancementNavPlugin(), auditTabPlugin(), toolsTabPlugin(), speedLiteTeamsTemplatePlugin(), shiftContextUxPlugin(), analysisScopePlugin(), laborShareAreaAdminPlugin(), laborShareMovementPlugin(), speedLiteTeamsMovementPlugin(), laborShareBoardUiPlugin(), speedLiteTeamsUiPlugin(), laborShareAnalysisPlugin(), speedLiteTeamsAnalysisPlugin(), speedLiteTeamsAnalysisUiFixPlugin(), laborShareSuggestionsPlugin(), speedLiteTeamsSuggestionsPlugin(), laborShareSlackPlugin(), speedLiteTeamsSlackPlugin(), managerTabPlugin(), speedLiteTeamsManagerPlugin(), suggestionsTabPlugin(), auditAdminPlugin(), auditActionsPlugin(), shiftCorePlugin(), reportExportPlugin(), reportShiftFixPlugin(), laborShareExcelPlugin(), speedLiteTeamsExcelPlugin(), pdfDailyDataPlugin(), pdfWeeklyDataPlugin(), pdfDailySectionPlugin(), pdfWeeklySectionPlugin(), pdfFooterPlugin(), laborSharePdfPlugin(), speedLiteTeamsPdfPlugin(), speedLiteTeamsRuntimeFixPlugin(), speedLiteTeamsValidationPlugin(), builderTagPlugin(), scheduledStatusPlugin(), react()],
   server: {
     host: '0.0.0.0',
     port: 5173,
