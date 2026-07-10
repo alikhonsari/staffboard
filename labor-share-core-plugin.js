@@ -15,7 +15,8 @@ export function laborShareCorePlugin() {
 
       if (!next.includes('const AREA_TYPE_OPTIONS =')) {
         const marker = 'function clone(value) {'
-        const helper = `const AREA_TYPE_OPTIONS = [
+        const helper = `const LABOR_SHARE_MIGRATION_VERSION = 1
+const AREA_TYPE_OPTIONS = [
   { value: 'production', label: 'SPEED Production' },
   { value: 'support', label: 'Support / Indirect' },
   { value: 'labor_share', label: 'Labor Share' },
@@ -73,8 +74,13 @@ function areaTypeLabel(areaType) {
       )
 
       next = next.replace(
+        "  currentBoardId: 'speed_day',",
+        "  currentBoardId: 'speed_day',\n  laborShareMigrationVersion: LABOR_SHARE_MIGRATION_VERSION,"
+      )
+
+      next = next.replace(
         "  state.areaDefs = Array.isArray(saved?.areaDefs) && saved?.areaDefs.length ? saved.areaDefs : activePreset.areaDefs",
-        "  state.areaDefs = normalizeAreaDefinitions(Array.isArray(saved?.areaDefs) && saved?.areaDefs.length ? saved.areaDefs : activePreset.areaDefs, state.currentBoardId)"
+        "  state.areaDefs = normalizeAreaDefinitions(Array.isArray(saved?.areaDefs) && saved?.areaDefs.length ? saved.areaDefs : activePreset.areaDefs, state.currentBoardId)\n  state.laborShareMigrationVersion = Math.max(Number(saved?.laborShareMigrationVersion || 0), LABOR_SHARE_MIGRATION_VERSION)"
       )
 
       next = next.replace(
