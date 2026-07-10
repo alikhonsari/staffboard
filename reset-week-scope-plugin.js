@@ -23,6 +23,8 @@ export function resetWeekScopePlugin() {
       const blank = blankWeekData()
       const history = { ...(prev.weeklyHistory || {}) }
       const locked = { ...(prev.lockedWeeks || {}) }
+      const commentsBoards = { ...(prev.commentsBoards || {}), [weekKey]: clone(defaultState.commentsBoard) }
+      const handoffNotesByWeek = { ...(prev.handoffNotesByWeek || {}), [weekKey]: '' }
       delete history[weekKey]
       delete locked[weekKey]
       return appendAudit({
@@ -31,6 +33,10 @@ export function resetWeekScopePlugin() {
         weeklyBoards: { ...(prev.weeklyBoards || {}), [weekKey]: blank },
         weeklyHistory: history,
         lockedWeeks: locked,
+        commentsBoards,
+        commentsBoard: clone(defaultState.commentsBoard),
+        handoffNotesByWeek,
+        handoffNotes: '',
         selectedDay: 'Monday',
       }, { action: 'Reset Scoped Week', oldValue: scopeLabel, newValue: 'Blank active week only' })
     })
