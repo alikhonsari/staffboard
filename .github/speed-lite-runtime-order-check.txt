@@ -1,0 +1,1 @@
+Temporary CI trigger for Speed Lite runtime initialization-order validation.
