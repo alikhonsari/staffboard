@@ -5,7 +5,13 @@ function writeDiagnostic(scope, required, missing, extra = {}) {
   const file = path.join(process.cwd(), 'speed-lite-transform-status.json')
   let current = {}
   try { current = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { current = {} }
-  current[scope] = { checkedAt: new Date().toISOString(), required, missing, passed: missing.length === 0 && !extra.orderError, ...extra }
+  current[scope] = {
+    checkedAt: new Date().toISOString(),
+    required,
+    missing,
+    passed: missing.length === 0 && !extra.runtimeVariableError,
+    ...extra,
+  }
   fs.writeFileSync(file, JSON.stringify(current, null, 2))
 }
 
@@ -26,13 +32,15 @@ export function speedLiteTeamsValidationPlugin() {
           'Speed Lite Teams + Memberships',
         ]
         const missing = required.filter((marker) => !code.includes(marker))
-        const declarationIndex = code.indexOf('const speedLiteTeamsEnabled =')
-        const earlyReference = declarationIndex >= 0 && code.slice(0, declarationIndex).includes('speedLiteTeamsEnabled')
-        const orderError = declarationIndex < 0 ? 'speedLiteTeamsEnabled declaration missing' : earlyReference ? 'speedLiteTeamsEnabled referenced before initialization' : ''
-        writeDiagnostic('app', required, missing, { orderError })
+        const runtimeVariableError = code.includes('speedLiteTeamsEnabled')
+          ? 'The final generated App still contains speedLiteTeamsEnabled.'
+          : ''
+
+        writeDiagnostic('app', required, missing, { runtimeVariableError })
         if (missing.length) throw new Error('Speed Lite team App transforms missing: ' + missing.join(', '))
-        if (orderError) throw new Error('Speed Lite team initialization order invalid: ' + orderError)
+        if (runtimeVariableError) throw new Error('Speed Lite runtime safety validation failed: ' + runtimeVariableError)
       }
+
       if (id.endsWith('/src/reporting.js')) {
         const required = [
           'function speedLiteTeamRowsForDay',
@@ -44,6 +52,7 @@ export function speedLiteTeamsValidationPlugin() {
         writeDiagnostic('reporting', required, missing)
         if (missing.length) throw new Error('Speed Lite team reporting transforms missing: ' + missing.join(', '))
       }
+
       return null
     },
   }
