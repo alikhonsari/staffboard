@@ -31,10 +31,6 @@ function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))
 }
 
-function isObject(value) {
-  return value && typeof value === 'object' && !Array.isArray(value)
-}
-
 function eventField(type) {
   return type === 'clock_in' ? 'scheduledClockIn' : 'scheduledClockOut'
 }
@@ -52,18 +48,22 @@ function boardViews(state, boardId) {
   return views
 }
 
-function assignmentFor(board, event) {
-  if (!board || !event) return null
-  let weekData = board.weeklyBoards?.[event.weekStartDate]
-  if (!isObject(weekData) && board.weekStartDate === event.weekStartDate) weekData = board.weeklyData
-  return weekData?.[event.day]?.assignments?.[event.builderId] || null
+function assignmentRefs(board, context) {
+  if (!board || !context) return []
+  const refs = []
+  const fromArchive = board.weeklyBoards?.[context.weekStartDate]?.[context.day]?.assignments?.[context.builderId]
+  if (fromArchive) refs.push(fromArchive)
+  if (board.weekStartDate === context.weekStartDate) {
+    const fromActive = board.weeklyData?.[context.day]?.assignments?.[context.builderId]
+    if (fromActive && !refs.includes(fromActive)) refs.push(fromActive)
+  }
+  return refs
 }
 
 function mutateEventAssignment(state, event, mutation) {
   if (!event?.boardId || !event?.weekStartDate || !event?.day || !event?.builderId) return
   for (const board of boardViews(state, event.boardId)) {
-    const assignment = assignmentFor(board, event)
-    if (assignment) mutation(assignment)
+    for (const assignment of assignmentRefs(board, event)) mutation(assignment)
   }
 }
 
@@ -91,16 +91,27 @@ function sweepLatestCanceledTimes(state) {
   const boardIds = Array.from(new Set([state.currentBoardId || 'speed_day', ...Object.keys(state.boardStore || {})]))
   for (const boardId of boardIds) {
     for (const board of boardViews(state, boardId)) {
-      const weekEntries = new Map(Object.entries(board.weeklyBoards || {}))
-      if (board.weekStartDate && board.weeklyData) weekEntries.set(board.weekStartDate, board.weeklyData)
-      for (const [, weekData] of weekEntries) {
+      const contexts = new Map()
+      for (const [weekStartDate, weekData] of Object.entries(board.weeklyBoards || {})) {
         for (const day of WEEKDAYS) {
-          for (const assignment of Object.values(weekData?.[day]?.assignments || {})) {
-            const history = Array.isArray(assignment.scheduleHistory) ? assignment.scheduleHistory : []
-            for (const type of ['clock_in', 'clock_out']) {
-              const latest = history.find((event) => event?.type === type)
-              if (latest?.status === 'canceled' && !assignment[eventField(type)]) assignment[timeField(type)] = ''
-            }
+          for (const builderId of Object.keys(weekData?.[day]?.assignments || {})) {
+            contexts.set(`${weekStartDate}:${day}:${builderId}`, { weekStartDate, day, builderId })
+          }
+        }
+      }
+      if (board.weekStartDate && board.weeklyData) {
+        for (const day of WEEKDAYS) {
+          for (const builderId of Object.keys(board.weeklyData?.[day]?.assignments || {})) {
+            contexts.set(`${board.weekStartDate}:${day}:${builderId}`, { weekStartDate: board.weekStartDate, day, builderId })
+          }
+        }
+      }
+      for (const context of contexts.values()) {
+        for (const assignment of assignmentRefs(board, context)) {
+          const history = Array.isArray(assignment.scheduleHistory) ? assignment.scheduleHistory : []
+          for (const type of ['clock_in', 'clock_out']) {
+            const latest = history.find((event) => event?.type === type)
+            if (latest?.status === 'canceled' && !assignment[eventField(type)]) assignment[timeField(type)] = ''
           }
         }
       }
@@ -114,26 +125,40 @@ function copyPendingSchedules(existingState, incomingState) {
   const boardIds = Array.from(new Set([existingState.currentBoardId || 'speed_day', ...Object.keys(existingState.boardStore || {})]))
 
   for (const boardId of boardIds) {
-    const existingBoard = boardId === (existingState.currentBoardId || 'speed_day') ? existingState : existingState.boardStore?.[boardId]
-    const incomingBoard = boardId === (merged.currentBoardId || 'speed_day') ? merged : merged.boardStore?.[boardId]
-    if (!existingBoard || !incomingBoard) continue
-    const existingWeeks = new Map(Object.entries(existingBoard.weeklyBoards || {}))
-    if (existingBoard.weekStartDate && existingBoard.weeklyData) existingWeeks.set(existingBoard.weekStartDate, existingBoard.weeklyData)
-    for (const [weekStartDate, existingWeek] of existingWeeks) {
-      let incomingWeek = incomingBoard.weeklyBoards?.[weekStartDate]
-      if (!incomingWeek && incomingBoard.weekStartDate === weekStartDate) incomingWeek = incomingBoard.weeklyData
-      if (!incomingWeek) continue
-      for (const day of WEEKDAYS) {
-        for (const [builderId, existingAssignment] of Object.entries(existingWeek?.[day]?.assignments || {})) {
-          const incomingAssignment = incomingWeek?.[day]?.assignments?.[builderId]
-          if (!incomingAssignment) continue
+    const existingViews = boardViews(existingState, boardId)
+    const incomingViews = boardViews(merged, boardId)
+    if (!existingViews.length || !incomingViews.length) continue
+    const contexts = new Map()
+    for (const existingBoard of existingViews) {
+      for (const [weekStartDate, weekData] of Object.entries(existingBoard.weeklyBoards || {})) {
+        for (const day of WEEKDAYS) {
+          for (const builderId of Object.keys(weekData?.[day]?.assignments || {})) {
+            contexts.set(`${weekStartDate}:${day}:${builderId}`, { weekStartDate, day, builderId })
+          }
+        }
+      }
+      if (existingBoard.weekStartDate && existingBoard.weeklyData) {
+        for (const day of WEEKDAYS) {
+          for (const builderId of Object.keys(existingBoard.weeklyData?.[day]?.assignments || {})) {
+            contexts.set(`${existingBoard.weekStartDate}:${day}:${builderId}`, { weekStartDate: existingBoard.weekStartDate, day, builderId })
+          }
+        }
+      }
+    }
+
+    for (const context of contexts.values()) {
+      const existingAssignments = existingViews.flatMap((board) => assignmentRefs(board, context))
+      const source = existingAssignments.find((assignment) => assignment.scheduledClockIn?.status === 'pending' || assignment.scheduledClockOut?.status === 'pending') || existingAssignments[0]
+      if (!source) continue
+      for (const incomingBoard of incomingViews) {
+        for (const incomingAssignment of assignmentRefs(incomingBoard, context)) {
           for (const type of ['clock_in', 'clock_out']) {
             const field = eventField(type)
-            const pending = existingAssignment[field]
+            const pending = source[field]
             if (pending?.status === 'pending' && !incomingAssignment[field]) incomingAssignment[field] = clone(pending)
           }
-          if (!Array.isArray(incomingAssignment.scheduleHistory) && Array.isArray(existingAssignment.scheduleHistory)) {
-            incomingAssignment.scheduleHistory = clone(existingAssignment.scheduleHistory)
+          if (!Array.isArray(incomingAssignment.scheduleHistory) && Array.isArray(source.scheduleHistory)) {
+            incomingAssignment.scheduleHistory = clone(source.scheduleHistory)
           }
         }
       }
