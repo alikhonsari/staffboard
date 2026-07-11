@@ -2,6 +2,7 @@ import express from 'express'
 import { config, enqueue, reconcilePersistedState, runtime } from './guarded-server-runtime.js'
 import { installGuardedRoutes, wrapStateGet, wrapStateSave } from './guarded-server-routes.js'
 import { installRecoveryRoutes } from './recovery-routes.js'
+import { installRecoveryStatusRoute } from './recovery-status-routes.js'
 
 const originalGet = express.application.get
 const originalPut = express.application.put
@@ -13,6 +14,7 @@ function patchRoute(method, original) {
     if (String(path).startsWith('/api/')) {
       installGuardedRoutes(this)
       installRecoveryRoutes(this)
+      installRecoveryStatusRoute(this)
     }
     if (path === '/api/state' && handlers.length) {
       const index = handlers.length - 1
