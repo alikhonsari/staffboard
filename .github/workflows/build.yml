@@ -25,6 +25,7 @@ jobs:
           node --check public/sidebar-v3.js
           node --check public/theme-preload-v3.js
           node --check public/theme-controller-v3.js
+          node --check public/builder-management-v3.js
       - name: Validate Dark Mode v3 assets
         run: |
           test -s public/dark-mode-v3.css
@@ -41,6 +42,27 @@ jobs:
           if (preload < 0 || firstCss < 0 || preload > firstCss) throw new Error('Theme preload must load before stylesheets')
           if (darkCss < 0 || darkCss < sidebarCss) throw new Error('Dark Mode v3 CSS must load after Sidebar v3 CSS')
           if (controller < 0) throw new Error('Theme controller is missing from index.html')
+          NODE
+      - name: Validate Builder Management v3 assets
+        run: |
+          test -s src/BuilderManagementWorkspace.jsx
+          test -s src/BuilderHealthInsights.jsx
+          test -s public/builder-management-v3.css
+          test -s public/builder-management-v3.js
+          grep -q 'data-builder-management-v3' src/BuilderManagementWorkspace.jsx
+          grep -q 'Archived Builders' src/BuilderManagementWorkspace.jsx
+          grep -q 'Quick Add Builders' src/BuilderManagementWorkspace.jsx
+          grep -q 'Historical staffing, hours, reports' src/BuilderManagementWorkspace.jsx
+          grep -q 'builderManagementVersion' builder-management-v3-plugin.js
+          grep -q 'Builder Management v3' builder-management-v3-validation-plugin.js
+          node <<'NODE'
+          const fs = require('fs')
+          const html = fs.readFileSync('index.html', 'utf8')
+          const darkCss = html.indexOf('/dark-mode-v3.css')
+          const builderCss = html.indexOf('/builder-management-v3.css')
+          const builderScript = html.indexOf('/builder-management-v3.js')
+          if (builderCss < 0 || builderCss < darkCss) throw new Error('Builder Management CSS must load after Dark Mode v3 CSS')
+          if (builderScript < 0) throw new Error('Builder Management controller is missing from index.html')
           NODE
       - name: Install dependencies
         run: npm install
