@@ -19,7 +19,6 @@ export function dailyPdfV3Plugin() {
         next = next.replace(statusMarker, `${statusMarker}\n  const [dailyPdfExportStatus, setDailyPdfExportStatus] = useState('')`)
       }
 
-      const oldExport = `  const exportDailyPdf = async () => {\n    await exportElementToPdf(dailyPdfRef.current, \`daily-report-\${state.weekStartDate}-\${state.selectedDay}.pdf\`)\n  }`
       const newExport = `  const exportDailyPdf = async () => {
     if (!dailyPdfRef.current || dailyPdfExportStatus) return
     try {
@@ -38,7 +37,13 @@ export function dailyPdfV3Plugin() {
       alert('Daily PDF generation failed: ' + (error?.message || 'Unknown error'))
     }
   }`
-      next = next.replace(oldExport, newExport)
+      const exportStartMarker = '  const exportDailyPdf = async () => {'
+      const exportEndMarker = '\n\n  const exportWeeklyPdf = async () => {'
+      const exportStart = next.indexOf(exportStartMarker)
+      const exportEnd = exportStart >= 0 ? next.indexOf(exportEndMarker, exportStart) : -1
+      if (exportStart >= 0 && exportEnd > exportStart) {
+        next = next.slice(0, exportStart) + newExport + next.slice(exportEnd)
+      }
 
       const dailyStartMarker = '          <div ref={dailyPdfRef} className="pdf-report-sheet">'
       const weeklyMarker = '          <div ref={weeklyPdfRef} className="pdf-report-sheet">'
