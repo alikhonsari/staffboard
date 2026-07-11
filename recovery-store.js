@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { buildVersionRecords, detectBackupReason } from './recovery-core.js'
+import { calendarBackupPlan, retainUniqueNewest } from './recovery-policy.js'
 import { config, deleteObjectJson, getObjectJson, putObjectJson, registerAfterPersistObserver, registerBeforePersistObserver } from './guarded-server-runtime.js'
 
 const MAX_VERSIONS = Number(process.env.STAFFBOARD_VERSION_LIMIT || 500)
@@ -18,21 +19,12 @@ function id(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}`
 }
 
-function mondayKey(value = new Date()) {
-  const date = value instanceof Date ? new Date(value) : new Date(value)
-  const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12))
-  const day = utc.getUTCDay()
-  utc.setUTCDate(utc.getUTCDate() + (day === 0 ? -6 : 1 - day))
-  return utc.toISOString().slice(0, 10)
-}
-
 export async function appendVersionRecords(records = []) {
   if (!records.length) return []
   const payload = await getObjectJson(recoveryKeys.versions, { versions: [] })
   const existing = Array.isArray(payload.versions) ? payload.versions : []
-  const ids = new Set(records.map((record) => record.id))
-  const versions = [...records, ...existing.filter((record) => !ids.has(record.id))].slice(0, MAX_VERSIONS)
-  await putObjectJson(recoveryKeys.versions, { versions, updatedAt: new Date().toISOString(), limit: MAX_VERSIONS })
+  const { keep } = retainUniqueNewest([...records, ...existing], MAX_VERSIONS)
+  await putObjectJson(recoveryKeys.versions, { versions: keep, updatedAt: new Date().toISOString(), limit: MAX_VERSIONS })
   return records
 }
 
@@ -78,8 +70,7 @@ async function writeBackupIndex(index) {
 }
 
 async function pruneBackups(index) {
-  const keep = index.slice(0, MAX_BACKUPS)
-  const remove = index.slice(MAX_BACKUPS)
+  const { keep, remove } = retainUniqueNewest(index, MAX_BACKUPS)
   for (const backup of remove) {
     try { await deleteObjectJson(backup.key) } catch (error) { console.warn('Failed to prune StaffBoard backup:', error.message) }
   }
@@ -104,6 +95,7 @@ export async function createStateBackup(state, metadata = {}) {
     day: metadata.day || state.selectedDay || '',
     stateRevision: metadata.stateRevision || state.updatedAt || '',
     sizeHint: JSON.stringify(state).length,
+    weekBackupKey: metadata.weekBackupKey || '',
   }
   await putObjectJson(key, { metadata: record, state: clone(state) })
   const payload = await getObjectJson(recoveryKeys.backupIndex, { backups: [] })
@@ -117,20 +109,21 @@ export async function ensureCalendarBackups(state, metadata = {}) {
   const payload = await getObjectJson(recoveryKeys.backupIndex, { backups: [] })
   const index = Array.isArray(payload.backups) ? payload.backups : []
   const now = metadata.now instanceof Date ? metadata.now : new Date(metadata.now || Date.now())
-  const dateKey = now.toISOString().slice(0, 10)
-  const weekKey = mondayKey(now)
+  const initialPlan = calendarBackupPlan(index, now)
   const created = []
-  if (!index.some((item) => item.kind === 'daily' && item.createdAt?.slice(0, 10) === dateKey)) {
+  if (initialPlan.needsDaily) {
     created.push(await createStateBackup(state, { ...metadata, kind: 'daily', reason: 'Automatic daily snapshot', createdAt: now.toISOString() }))
   }
   const refreshed = (await getObjectJson(recoveryKeys.backupIndex, { backups: [] })).backups || []
-  if (!refreshed.some((item) => item.kind === 'weekly' && item.weekBackupKey === weekKey)) {
-    const weekly = await createStateBackup(state, { ...metadata, kind: 'weekly', reason: `Automatic weekly snapshot ${weekKey}`, createdAt: now.toISOString() })
-    const latestPayload = await getObjectJson(recoveryKeys.backupIndex, { backups: [] })
-    const rows = Array.isArray(latestPayload.backups) ? latestPayload.backups : []
-    const updated = rows.map((row) => row.id === weekly.id ? { ...row, weekBackupKey: weekKey } : row)
-    await writeBackupIndex(updated)
-    created.push({ ...weekly, weekBackupKey: weekKey })
+  const refreshedPlan = calendarBackupPlan(refreshed, now)
+  if (refreshedPlan.needsWeekly) {
+    created.push(await createStateBackup(state, {
+      ...metadata,
+      kind: 'weekly',
+      reason: `Automatic weekly snapshot ${refreshedPlan.weekKey}`,
+      createdAt: now.toISOString(),
+      weekBackupKey: refreshedPlan.weekKey,
+    }))
   }
   return created
 }
@@ -154,7 +147,7 @@ export function installRecoveryObservers() {
   observersInstalled = true
   registerBeforePersistObserver(async ({ previousState, nextState, actor, source, previousUpdatedAt }) => {
     const detected = detectBackupReason(previousState, nextState)
-    const sourceNeedsBackup = /closure|restore|recovery|finalize|template|reset|clear/i.test(String(source || ''))
+    const sourceNeedsBackup = /closure|finalize|template|reset|clear/i.test(String(source || ''))
     if (detected || sourceNeedsBackup) {
       await createStateBackup(previousState, {
         kind: 'pre-action',
