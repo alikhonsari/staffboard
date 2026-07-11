@@ -14,6 +14,7 @@ Full V6 staffing board restored for DigitalOcean App Platform.
 - Shared state saved to DigitalOcean Spaces.
 - Shared admin token for multiple admins.
 - Persistent, server-authoritative scheduled clock-in and clock-out transitions.
+- Server-authoritative operational-day and shift closure controls.
 
 ## Scheduled clock transitions
 
@@ -25,6 +26,27 @@ Scheduled attendance changes are persisted in the shared Spaces state and evalua
 - Each event stores its board, shift, week, operational day, builder, scheduled effective time, actual processed time, actor, and audit history.
 - Night-shift times after midnight remain attached to the prior operational day.
 - Canceled and replaced events cannot overwrite a newer manual status or area change.
+
+## Operational-day closures
+
+Authorized admins can mark an entire operational day, Day Shift only, or Night Shift only as closed for a holiday, building closure, weather, maintenance, emergency, planned shutdown, or custom reason.
+
+- Closure state is stored in the shared Spaces JSON and validated by the server.
+- An entire-day closure covers both the Day Shift and the Night Shift that begins on the selected operational date; the after-midnight portion remains attached to that date.
+- Pending scheduled clock transitions in the affected scope are canceled and audited. Completed transitions and historical staffing, assignment, production, rack, note, and area-hour records remain unchanged.
+- Closed days reject staffing, scheduling, production, note, rack, copy-day, and template changes until an admin reopens the day or shift.
+- Reopening never restores canceled schedules automatically.
+- Closed days are labeled in navigation, boards, PNG captures, Slack summaries, manager views, PDF reports, and Excel exports.
+- Closed days are excluded from staffing, TPH, productivity, utilization, attendance-exception, rotation-fairness, and goal-completion averages instead of being counted as zero-performance days.
+
+Closure endpoints:
+
+```text
+GET  /api/day-closures/status
+POST /api/day-closures
+```
+
+The POST endpoint accepts `close` and `reopen` actions and is restricted to authenticated administrators.
 
 The default site timezone is `America/New_York`. Override it only when the physical site timezone changes:
 
