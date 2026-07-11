@@ -1,15 +1,16 @@
 {
   "name": "staffboard-final-full-spaces",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
-    "dev": "node server-guarded.js",
-    "start": "node server-guarded.js",
+    "dev": "node server-guarded-closures.js",
+    "start": "node server-guarded-closures.js",
     "build": "vite build",
     "test": "node --test",
     "test:scheduling": "node --test test/scheduled-transitions-core.test.js",
-    "lint": "node --check server-guarded.js && node --check scheduled-transitions-core.js && node --check scheduled-transitions-engine.js && node --check scheduled-transitions.js && node --check scheduled-status-plugin.js && node --check shift-core-plugin.js && node --check src/storageAdapter.js",
+    "test:closures": "node --test test/day-closures-core.test.js test/day-closure-plugin.test.js",
+    "lint": "node --check server-guarded-closures.js && node --check guarded-server-runtime.js && node --check guarded-server-routes.js && node --check scheduled-transitions-core.js && node --check scheduled-transitions-engine.js && node --check scheduled-transitions.js && node --check scheduled-status-plugin.js && node --check shift-core-plugin.js && node --check day-closures-model.js && node --check day-closures-core.js && node --check day-closure-app-core-transform.js && node --check day-closure-app-ui-transform.js && node --check day-closure-report-transform.js && node --check day-closure-pdf-transform.js && node --check day-closure-plugin.js && node --check src/storageAdapter.js",
     "check": "npm run lint && npm test && vite build",
     "clean": "rm -rf dist node_modules/.vite"
   },
