@@ -21,7 +21,7 @@ function StaffBoardApp(){
   const plugin = recoveryUiPlugin()
   const first = plugin.transform(source, '/workspace/src/App.jsx').code
   assert.match(first, /import RecoveryPanel from '\.\/RecoveryPanel\.jsx'/)
-  assert.match(first, /setMainTab\('recovery'\)>Recovery/)
+  assert.match(first, /mainTab === 'recovery'/)
   assert.match(first, /data-recovery-panel-route="true"/)
   assert.match(first, /normalizeState=\{normalizeState\}/)
 
