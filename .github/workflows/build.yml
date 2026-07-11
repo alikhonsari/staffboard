@@ -23,6 +23,25 @@ jobs:
           node --check public/share-png-safe.js
           node --check public/share-png-float.js
           node --check public/sidebar-v3.js
+          node --check public/theme-preload-v3.js
+          node --check public/theme-controller-v3.js
+      - name: Validate Dark Mode v3 assets
+        run: |
+          test -s public/dark-mode-v3.css
+          grep -q -- '--dark-surface-1' public/dark-mode-v3.css
+          grep -q 'staffboard.theme.' public/theme-controller-v3.js
+          node <<'NODE'
+          const fs = require('fs')
+          const html = fs.readFileSync('index.html', 'utf8')
+          const preload = html.indexOf('/theme-preload-v3.js')
+          const firstCss = html.indexOf('<link rel="stylesheet"')
+          const sidebarCss = html.indexOf('/sidebar-v3.css')
+          const darkCss = html.indexOf('/dark-mode-v3.css')
+          const controller = html.indexOf('/theme-controller-v3.js')
+          if (preload < 0 || firstCss < 0 || preload > firstCss) throw new Error('Theme preload must load before stylesheets')
+          if (darkCss < 0 || darkCss < sidebarCss) throw new Error('Dark Mode v3 CSS must load after Sidebar v3 CSS')
+          if (controller < 0) throw new Error('Theme controller is missing from index.html')
+          NODE
       - name: Install dependencies
         run: npm install
       - name: Build StaffBoard
