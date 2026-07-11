@@ -1,0 +1,209 @@
+import crypto from 'crypto'
+import dotenv from 'dotenv'
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import {
+  DEFAULT_SITE_TIME_ZONE, getNextPendingTransitionAt, processDueScheduledTransitions,
+} from './scheduled-transitions-core.js'
+import { reconcileClosedDaySchedules } from './day-closures-core.js'
+
+dotenv.config()
+
+export const config = {
+  port: Number(process.env.PORT || 8787),
+  authToken: process.env.AUTH_TOKEN || '',
+  authSecret: process.env.AUTH_SECRET || process.env.AUTH_TOKEN || process.env.SPACES_SECRET || 'staffboard-dev-secret',
+  bucket: process.env.SPACES_BUCKET || '',
+  key: process.env.SPACES_OBJECT_KEY || 'weekly/staffboard-2/staffboard-state.json',
+  endpoint: process.env.SPACES_ENDPOINT || '',
+  region: process.env.SPACES_REGION || 'us-east-1',
+  accessKey: process.env.SPACES_KEY || '',
+  secretKey: process.env.SPACES_SECRET || '',
+  timeZone: process.env.STAFFBOARD_TIME_ZONE || DEFAULT_SITE_TIME_ZONE,
+}
+config.historyKey = process.env.SPACES_HISTORY_KEY || config.key.replace(/\.json$/i, '-history.json')
+config.spacesConfigured = Boolean(config.bucket && config.endpoint && config.accessKey && config.secretKey)
+
+const s3 = config.spacesConfigured ? new S3Client({
+  endpoint: config.endpoint,
+  region: config.region,
+  credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey },
+}) : null
+
+export const runtime = {
+  currentStateVersion: null,
+  queue: Promise.resolve(),
+  scheduleTimer: null,
+  fallbackTimer: null,
+}
+
+const BOARD_RULES = {
+  speed_day: ['Day Shift', 'SPEED Staffing Board'], speed_night: ['Night Shift', 'SPEED Staffing Board'],
+  fa_day: ['Day Shift', 'FA Lab Staffing Board'], fa_night: ['Night Shift', 'FA Lab Staffing Board'],
+  bodega_day: ['Day Shift', 'Bodega Staffing Board'], bodega_night: ['Night Shift', 'Bodega Staffing Board'],
+}
+const AREA_TYPES = new Set(['production', 'support', 'labor_share', 'unassigned'])
+const clean = (value) => String(value || '').trim()
+
+async function streamToString(stream) {
+  const chunks = []
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk))
+  return Buffer.concat(chunks).toString('utf-8')
+}
+
+export async function getObjectJson(key, fallback) {
+  try {
+    if (!s3) throw new Error('Spaces is not configured')
+    const output = await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }))
+    const text = await streamToString(output.Body)
+    return text ? JSON.parse(text) : fallback
+  } catch (error) {
+    const name = String(error?.name || error?.Code || '')
+    if (name.includes('NoSuchKey') || error?.$metadata?.httpStatusCode === 404) return fallback
+    throw error
+  }
+}
+
+export async function putObjectJson(key, payload) {
+  if (!s3) throw new Error('Spaces is not configured')
+  await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: JSON.stringify(payload, null, 2), ContentType: 'application/json' }))
+}
+
+export async function appendHistory(entry) {
+  try {
+    const history = await getObjectJson(config.historyKey, { events: [] })
+    const rows = (Array.isArray(history.events) ? history.events : []).filter((row) => !entry.id || row.id !== entry.id)
+    rows.unshift(entry)
+    await putObjectJson(config.historyKey, { events: rows.slice(0, 500), updatedAt: new Date().toISOString() })
+  } catch (error) {
+    console.warn('Failed to write StaffBoard history:', error.message)
+  }
+}
+
+export function enqueue(task) {
+  const job = runtime.queue.catch(() => {}).then(task)
+  runtime.queue = job.catch(() => {})
+  return job
+}
+
+function scheduleHistory(event, state, source) {
+  const notification = (state.scheduleNotifications || []).find((item) => item.id === event.id)
+  return {
+    id: `schedule-${event.id}`, at: event.processedAt || event.canceledAt || event.createdAt || new Date().toISOString(),
+    user: event.processedBy || event.canceledBy || event.createdBy || 'System',
+    action: notification?.message || `${event.type || 'Scheduled transition'} ${event.status || ''}`.trim(),
+    boardTitle: state.boardTitle || '', boardId: event.boardId || '', weekStartDate: event.weekStartDate || '',
+    selectedDay: event.day || '', builderId: event.builderId || '', transitionId: event.id,
+    effectiveAt: event.effectiveAt || event.scheduledAt || '', processedAt: event.processedAt || '', delayed: !!event.delayed, source,
+  }
+}
+
+function closureHistory(event, state, source) {
+  return {
+    id: `closure-history-${event.id}`, at: event.timestamp || event.canceledAt || new Date().toISOString(),
+    user: event.actor || event.canceledBy || 'System', action: event.message || event.actionType || 'Operational day closure updated',
+    actionType: event.actionType || '', boardTitle: state.boardTitle || '', boardId: event.boardId || '', operationId: event.operationId || '',
+    weekStartDate: event.weekStartDate || '', selectedDay: event.day || '', scope: event.scope || '', reason: event.reason || '', note: event.note || '',
+    builder: event.builder || '', builderId: event.builderId || '', transitionId: event.transitionId || event.id || '',
+    closureId: event.closureId || event.id || '', canceledTransitionCount: Number(event.canceledTransitionCount || 0), source,
+  }
+}
+
+export const historyEntryForEvent = (event, state, source) => event?.kind === 'closure' ? closureHistory(event, state, source) : scheduleHistory(event, state, source)
+
+export async function persistState(state, actor, source, events = []) {
+  const savedAt = new Date().toISOString()
+  const payload = { state: { ...state, updatedAt: savedAt }, updatedAt: savedAt, updatedBy: actor || 'System' }
+  await putObjectJson(config.key, payload)
+  runtime.currentStateVersion = savedAt
+  for (const event of events) await appendHistory(historyEntryForEvent(event, payload.state, source))
+  scheduleNext(payload.state)
+  return payload
+}
+
+export async function reconcilePersistedState(source = 'reconciliation') {
+  if (!config.spacesConfigured) return { changed: false, payload: { state: {}, updatedAt: '' }, events: [] }
+  const payload = await getObjectJson(config.key, { state: {}, updatedAt: '' })
+  runtime.currentStateVersion = String(payload.updatedAt || '')
+  const closures = reconcileClosedDaySchedules(payload.state || {}, { actor: 'System', now: new Date() })
+  const schedules = processDueScheduledTransitions(closures.state || payload.state || {}, new Date(), { timeZone: config.timeZone, actor: 'System' })
+  const events = [...(closures.events || []), ...(schedules.events || [])]
+  if (!closures.changed && !schedules.changed) {
+    scheduleNext(payload.state || {})
+    return { state: payload.state || {}, changed: false, events: [], payload }
+  }
+  const saved = await persistState(schedules.state, 'System', source, events)
+  return { state: saved.state, changed: true, events, payload: saved }
+}
+
+export function scheduleNext(state) {
+  if (runtime.scheduleTimer) clearTimeout(runtime.scheduleTimer)
+  const nextDueAt = getNextPendingTransitionAt(state || {})
+  if (!nextDueAt) { runtime.scheduleTimer = null; return }
+  const delay = Math.max(0, new Date(nextDueAt).getTime() - Date.now()) + 10
+  runtime.scheduleTimer = setTimeout(() => enqueue(() => reconcilePersistedState('scheduled-timer')).catch((error) => console.error('Scheduled transition timer failed:', error)), Math.min(delay, 2_147_000_000))
+  runtime.scheduleTimer.unref?.()
+}
+
+export function requireAdminAuth(req, res, next) {
+  const auth = req.headers.authorization || ''
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : req.headers['x-auth-token'] || ''
+  try {
+    if (token?.includes('.')) {
+      const [body, sig] = token.split('.')
+      const expected = crypto.createHmac('sha256', config.authSecret).update(body).digest('base64url')
+      if (Buffer.byteLength(sig) === Buffer.byteLength(expected) && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+        const session = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'))
+        if ((!session.exp || Date.now() <= session.exp) && (session.role || 'admin') === 'admin') { req.user = session; return next() }
+      }
+    }
+  } catch { /* fall through */ }
+  if (config.authToken && token === config.authToken) { req.user = { username: 'token-admin', role: 'admin' }; return next() }
+  return res.status(401).json({ error: 'Unauthorized' })
+}
+
+function inferredAreaType(name) {
+  const value = clean(name).toLowerCase()
+  if (!value || value === 'unassigned') return 'unassigned'
+  if (value === 'fa' || value === 'fa metal removal') return 'labor_share'
+  if (['shipping', 'eos pull racks', 'projects', 'learning', '1:1'].includes(value)) return 'support'
+  return 'production'
+}
+
+function normalizeAreas(scope, boardId) {
+  if (!scope || typeof scope !== 'object') return
+  const areas = (Array.isArray(scope.areaDefs) ? scope.areaDefs : []).filter((area) => area && clean(area.name)).map((area) => ({
+    ...area, name: clean(area.name), areaType: AREA_TYPES.has(area.areaType) ? area.areaType : inferredAreaType(area.name), capacity: area.capacity ?? '', note: clean(area.note),
+  }))
+  if (boardId.startsWith('speed_')) {
+    const names = new Set(areas.map((area) => area.name.toLowerCase()))
+    if (!names.has('fa')) areas.push({ name: 'FA', areaType: 'labor_share', capacity: '', note: 'Labor share outside SPEED production' })
+    if (!names.has('fa metal removal')) areas.push({ name: 'FA Metal Removal', areaType: 'labor_share', capacity: '', note: 'Labor share outside SPEED production' })
+  }
+  scope.areaDefs = areas
+}
+
+export function validateAndRepairState(req, res) {
+  const state = req.body?.state
+  if (!state || typeof state !== 'object' || Array.isArray(state)) { res.status(400).json({ error: 'Shared state payload is missing or invalid.', invalidState: true }); return false }
+  const boardId = clean(state.currentBoardId)
+  const rule = BOARD_RULES[boardId]
+  if (!rule) { res.status(400).json({ error: 'Unknown active board ID. Refresh before saving.', invalidState: true }); return false }
+  state.boardShift = rule[0]
+  state.boardTitle = rule[1]
+  normalizeAreas(state, boardId)
+  state.weeklyBoards = state.weeklyBoards && typeof state.weeklyBoards === 'object' ? state.weeklyBoards : {}
+  state.boardStore = state.boardStore && typeof state.boardStore === 'object' ? state.boardStore : {}
+  if (!state.weekStartDate || !state.weeklyData || typeof state.weeklyData !== 'object') { res.status(400).json({ error: 'Active week data is invalid.', invalidState: true }); return false }
+  for (const [id, stored] of Object.entries(state.boardStore)) {
+    const storedRule = BOARD_RULES[id]
+    if (!storedRule || !stored || typeof stored !== 'object') continue
+    stored.boardShift = storedRule[0]
+    stored.boardTitle = storedRule[1]
+    stored.weeklyBoards = stored.weeklyBoards && typeof stored.weeklyBoards === 'object' ? stored.weeklyBoards : {}
+    stored.dayTemplates = Array.isArray(stored.dayTemplates) ? stored.dayTemplates : []
+    stored.auditLog = Array.isArray(stored.auditLog) ? stored.auditLog : []
+    normalizeAreas(stored, id)
+  }
+  if (Array.isArray(state.builderPool)) state.builderPool = state.builderPool.map((builder) => ({ ...builder, countsAsProductionLabor: !!builder.countsAsProductionLabor }))
+  return true
+}
