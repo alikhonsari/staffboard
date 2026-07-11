@@ -13,7 +13,7 @@ import {
   processDueScheduledTransitions as processDueScheduledTransitionsCore,
   reconcileIncomingManualChanges as reconcileIncomingManualChangesCore,
   zonedDateTimeToUtc,
-} from './scheduled-transitions-core.js'
+} from './scheduled-transitions-engine.js'
 
 export {
   ACTIVE_WORK_STATUSES,
