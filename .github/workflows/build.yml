@@ -98,6 +98,10 @@ jobs:
           NODE
       - name: Install dependencies
         run: npm install
+      - name: Lint and test StaffBoard
+        run: |
+          npm run lint
+          npm test
       - name: Build StaffBoard
         shell: bash
         run: |
