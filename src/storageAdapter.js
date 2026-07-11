@@ -26,6 +26,9 @@ function normalize(defaultState, saved) {
   merged.weeklyBoards = saved.weeklyBoards || defaultState.weeklyBoards || {}
   merged.weeklyHistory = saved.weeklyHistory || defaultState.weeklyHistory || {}
   merged.lockedWeeks = saved.lockedWeeks || defaultState.lockedWeeks || {}
+  merged.dayClosures = saved.dayClosures && typeof saved.dayClosures === 'object' ? saved.dayClosures : {}
+  merged.closureRevision = Number(saved.closureRevision || 0)
+  merged.closureNotifications = Array.isArray(saved.closureNotifications) ? saved.closureNotifications : []
   return merged
 }
 
@@ -199,6 +202,35 @@ export async function loadScheduledTransitionStatus() {
     throw new Error('Invalid admin session. Please log in again.')
   }
   if (!res.ok) throw new Error(await responseMessage(res, 'Failed to check scheduled transitions'))
+  return res.json()
+}
+
+export async function requestDayClosure(action, details = {}, defaultState = {}) {
+  const res = await requestWithTimeout('/api/day-closures', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ action, ...details }),
+  })
+  if (res.status === 401) {
+    clearSharedAuthToken()
+    throw new Error('Invalid admin session. Please log in again.')
+  }
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to update day closure'))
+  const payload = await res.json()
+  if (payload.state) payload.normalizedState = rememberRemotePayload(payload, defaultState)
+  return payload
+}
+
+export async function loadDayClosureStatus() {
+  const res = await requestWithTimeout('/api/day-closures/status', {
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (res.status === 401) {
+    clearSharedAuthToken()
+    throw new Error('Invalid admin session. Please log in again.')
+  }
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to check day closure status'))
   return res.json()
 }
 
