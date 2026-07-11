@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import dotenv from 'dotenv'
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import {
   DEFAULT_SITE_TIME_ZONE, getNextPendingTransitionAt, processDueScheduledTransitions,
 } from './scheduled-transitions-core.js'
@@ -34,6 +34,8 @@ export const runtime = {
   queue: Promise.resolve(),
   scheduleTimer: null,
   fallbackTimer: null,
+  beforePersistObservers: [],
+  afterPersistObservers: [],
 }
 
 const BOARD_RULES = {
@@ -66,6 +68,19 @@ export async function getObjectJson(key, fallback) {
 export async function putObjectJson(key, payload) {
   if (!s3) throw new Error('Spaces is not configured')
   await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: JSON.stringify(payload, null, 2), ContentType: 'application/json' }))
+}
+
+export async function deleteObjectJson(key) {
+  if (!s3) throw new Error('Spaces is not configured')
+  await s3.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }))
+}
+
+export function registerBeforePersistObserver(observer) {
+  if (typeof observer === 'function' && !runtime.beforePersistObservers.includes(observer)) runtime.beforePersistObservers.push(observer)
+}
+
+export function registerAfterPersistObserver(observer) {
+  if (typeof observer === 'function' && !runtime.afterPersistObservers.includes(observer)) runtime.afterPersistObservers.push(observer)
 }
 
 export async function appendHistory(entry) {
@@ -111,11 +126,17 @@ function closureHistory(event, state, source) {
 export const historyEntryForEvent = (event, state, source) => event?.kind === 'closure' ? closureHistory(event, state, source) : scheduleHistory(event, state, source)
 
 export async function persistState(state, actor, source, events = []) {
+  const previousPayload = await getObjectJson(config.key, { state: {}, updatedAt: '' })
+  const previousState = previousPayload.state || {}
+  const context = { previousState, nextState: state, actor: actor || 'System', source, events, previousUpdatedAt: previousPayload.updatedAt || '' }
+  for (const observer of runtime.beforePersistObservers) await observer(context)
+
   const savedAt = new Date().toISOString()
   const payload = { state: { ...state, updatedAt: savedAt }, updatedAt: savedAt, updatedBy: actor || 'System' }
   await putObjectJson(config.key, payload)
   runtime.currentStateVersion = savedAt
   for (const event of events) await appendHistory(historyEntryForEvent(event, payload.state, source))
+  for (const observer of runtime.afterPersistObservers) await observer({ ...context, payload, nextState: payload.state, stateRevision: savedAt })
   scheduleNext(payload.state)
   return payload
 }
@@ -205,5 +226,8 @@ export function validateAndRepairState(req, res) {
     normalizeAreas(stored, id)
   }
   if (Array.isArray(state.builderPool)) state.builderPool = state.builderPool.map((builder) => ({ ...builder, countsAsProductionLabor: !!builder.countsAsProductionLabor }))
+  state.recoveryRevision = Number(state.recoveryRevision || 0)
+  state.recoveryNotifications = Array.isArray(state.recoveryNotifications) ? state.recoveryNotifications : []
+  state.recoveryRequests = Array.isArray(state.recoveryRequests) ? state.recoveryRequests : []
   return true
 }

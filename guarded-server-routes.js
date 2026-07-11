@@ -11,6 +11,7 @@ import {
   appendHistory, config, enqueue, historyEntryForEvent, persistState,
   reconcilePersistedState, requireAdminAuth, runtime, scheduleNext, validateAndRepairState,
 } from './guarded-server-runtime.js'
+import { completeDirectStateSave, prepareDirectStateSave } from './recovery-direct-save.js'
 
 const clean = (value) => String(value || '').trim()
 let routesInstalled = false
@@ -53,7 +54,7 @@ async function scheduleAction(req, res) {
     })
     const state = response.payload.state || {}
     const notification = state.scheduleNotifications?.[0] || null
-    return res.json({ ...response.payload, changed: !!response.result.changed, scheduleRevision: Number(state.scheduleRevision || 0), closureRevision: Number(state.closureRevision || 0), notification, message: notification?.message || 'Scheduled transition updated.', timeZone: config.timeZone })
+    return res.json({ ...response.payload, changed: !!response.result.changed, scheduleRevision: Number(state.scheduleRevision || 0), closureRevision: Number(state.closureRevision || 0), recoveryRevision: Number(state.recoveryRevision || 0), notification, message: notification?.message || 'Scheduled transition updated.', timeZone: config.timeZone })
   } catch (error) {
     console.error('Scheduled transition action failed:', error)
     return res.status(400).json({ error: error.message || 'Scheduled transition action failed.' })
@@ -64,7 +65,7 @@ async function scheduleStatus(req, res) {
   try {
     const result = await enqueue(() => reconcilePersistedState('status-poll'))
     const state = result.payload.state || {}
-    return res.json({ updatedAt: result.payload.updatedAt || '', updatedBy: result.payload.updatedBy || '', scheduleRevision: Number(state.scheduleRevision || 0), closureRevision: Number(state.closureRevision || 0), notifications: (state.scheduleNotifications || []).slice(0, 10), nextDueAt: getNextPendingTransitionAt(state), timeZone: config.timeZone })
+    return res.json({ updatedAt: result.payload.updatedAt || '', updatedBy: result.payload.updatedBy || '', scheduleRevision: Number(state.scheduleRevision || 0), closureRevision: Number(state.closureRevision || 0), recoveryRevision: Number(state.recoveryRevision || 0), notifications: (state.scheduleNotifications || []).slice(0, 10), nextDueAt: getNextPendingTransitionAt(state), timeZone: config.timeZone })
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to reconcile scheduled transitions.' })
   }
@@ -89,7 +90,7 @@ async function closureAction(req, res) {
     })
     const state = response.payload.state || {}
     const latest = state.closureNotifications?.[0] || null
-    return res.json({ ...response.payload, changed: !!response.result.changed, closureRevision: Number(state.closureRevision || 0), scheduleRevision: Number(state.scheduleRevision || 0), closure: response.result.closure || null, canceledTransitionCount: Number(response.result.canceledTransitionCount || 0), message: latest?.message || (body.action === 'reopen' ? 'Operational day reopened.' : 'Operational day marked closed.'), timeZone: config.timeZone })
+    return res.json({ ...response.payload, changed: !!response.result.changed, closureRevision: Number(state.closureRevision || 0), scheduleRevision: Number(state.scheduleRevision || 0), recoveryRevision: Number(state.recoveryRevision || 0), closure: response.result.closure || null, canceledTransitionCount: Number(response.result.canceledTransitionCount || 0), message: latest?.message || (body.action === 'reopen' ? 'Operational day reopened.' : 'Operational day marked closed.'), timeZone: config.timeZone })
   } catch (error) {
     console.error('Day closure action failed:', error)
     return res.status(400).json({ error: error.message || 'Day closure action failed.' })
@@ -100,7 +101,7 @@ async function closureStatus(req, res) {
   try {
     const result = await enqueue(() => reconcilePersistedState('closure-status-poll'))
     const state = result.payload.state || {}
-    return res.json({ updatedAt: result.payload.updatedAt || '', updatedBy: result.payload.updatedBy || '', scheduleRevision: Number(state.scheduleRevision || 0), ...closureStatusPayload(state), timeZone: config.timeZone })
+    return res.json({ updatedAt: result.payload.updatedAt || '', updatedBy: result.payload.updatedBy || '', scheduleRevision: Number(state.scheduleRevision || 0), recoveryRevision: Number(state.recoveryRevision || 0), ...closureStatusPayload(state), timeZone: config.timeZone })
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Failed to load day closure status.' })
   }
@@ -157,12 +158,22 @@ export function wrapStateSave(handler) {
       const existing = reconciled.payload.state || {}
       const incoming = req.body?.state || {}
       assertClosedDayDataUnchanged(existing, incoming)
+      await prepareDirectStateSave(existing, incoming, {
+        actor: req.user?.username || 'System',
+        source: 'state-save',
+        stateRevision: reconciled.payload.updatedAt || '',
+      })
       const schedules = reconcileIncomingManualChanges(existing, incoming, { actor: req.user?.username || 'System', timeZone: config.timeZone, now: new Date() })
       const protectedState = preserveServerManagedClosures(existing, schedules.state)
       const closureSweep = reconcileClosedDaySchedules(protectedState, { actor: 'System', now: new Date() })
       req.body.state = closureSweep.state
       if (!validateAndRepairState(req, res)) return
       const payload = await invokeHandler(handler, req, res, next)
+      await completeDirectStateSave(existing, payload?.state || req.body.state, {
+        actor: req.user?.username || 'System',
+        source: 'state-save',
+        stateRevision: payload?.updatedAt || '',
+      })
       for (const event of closureSweep.events || []) await appendHistory(historyEntryForEvent(event, payload?.state || req.body.state, 'closed-day-save-reconciliation'))
       scheduleNext(payload?.state || req.body.state)
     }).catch((error) => {
