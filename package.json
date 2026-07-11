@@ -9,7 +9,7 @@
     "build": "vite build",
     "test": "node --test",
     "test:scheduling": "node --test test/scheduled-transitions-core.test.js",
-    "lint": "node --check server-guarded.js && node --check scheduled-transitions-core.js && node --check scheduled-status-plugin.js && node --check src/storageAdapter.js",
+    "lint": "node --check server-guarded.js && node --check scheduled-transitions-core.js && node --check scheduled-transitions-engine.js && node --check scheduled-transitions.js && node --check scheduled-status-plugin.js && node --check shift-core-plugin.js && node --check src/storageAdapter.js",
     "check": "npm run lint && npm test && vite build",
     "clean": "rm -rf dist node_modules/.vite"
   },
