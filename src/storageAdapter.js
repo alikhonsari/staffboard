@@ -70,15 +70,20 @@ async function responseMessage(res, fallback) {
   }
 }
 
-async function fetchLatestRemote(defaultState = {}) {
-  const res = await requestWithTimeout('/api/state', { headers: authHeaders(), cache: 'no-store' })
-  if (!res.ok) return null
-  const payload = await res.json()
+function rememberRemotePayload(payload, defaultState = {}) {
   const normalized = normalize(defaultState, payload.state || {})
   remoteUpdatedAt = String(payload.updatedAt || '')
   remoteHydrated = true
   lastRemoteStateJson = JSON.stringify(normalized)
   localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)
+  return normalized
+}
+
+async function fetchLatestRemote(defaultState = {}) {
+  const res = await requestWithTimeout('/api/state', { headers: authHeaders(), cache: 'no-store' })
+  if (!res.ok) return null
+  const payload = await res.json()
+  const normalized = rememberRemotePayload(payload, defaultState)
   return { payload, state: normalized }
 }
 
@@ -118,12 +123,7 @@ export async function loadRemoteState(defaultState) {
   }
   if (!res.ok) throw new Error(await responseMessage(res, 'Failed to load remote state'))
   const payload = await res.json()
-  const normalized = normalize(defaultState, payload.state || {})
-  remoteUpdatedAt = String(payload.updatedAt || '')
-  remoteHydrated = true
-  lastRemoteStateJson = JSON.stringify(normalized)
-  localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)
-  return normalized
+  return rememberRemotePayload(payload, defaultState)
 }
 
 async function performRemoteSave(state) {
@@ -171,6 +171,39 @@ export function saveRemoteState(state) {
   const job = saveQueue.catch(() => {}).then(() => performRemoteSave(state))
   saveQueue = job
   return job
+}
+
+export async function requestScheduledTransition(action, details = {}, defaultState = {}) {
+  const res = await requestWithTimeout('/api/scheduled-transitions', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ action, ...details }),
+  })
+  if (res.status === 401) {
+    clearSharedAuthToken()
+    throw new Error('Invalid admin session. Please log in again.')
+  }
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to update scheduled transition'))
+  const payload = await res.json()
+  if (payload.state) payload.normalizedState = rememberRemotePayload(payload, defaultState)
+  return payload
+}
+
+export async function loadScheduledTransitionStatus() {
+  const res = await requestWithTimeout('/api/scheduled-transitions/status', {
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (res.status === 401) {
+    clearSharedAuthToken()
+    throw new Error('Invalid admin session. Please log in again.')
+  }
+  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to check scheduled transitions'))
+  return res.json()
+}
+
+export function getRemoteUpdatedAt() {
+  return remoteUpdatedAt || ''
 }
 
 export async function loadHistory() {
