@@ -158,13 +158,13 @@ export function processDueScheduledTransitions(inputState, now = new Date(), opt
 
 export function applyImmediateTransition(inputState, input, options = {}) {
   const result = applyImmediateTransitionCore(inputState, input, options)
-  const state = setImmediateEffectiveTimes(clearCanceledEventTimes(clone(result.state), result.events), result.events)
+  const state = setImmediateEffectiveTimes(sweepLatestCanceledTimes(clone(result.state)), result.events)
   return { ...result, state, nextDueAt: getNextPendingTransitionAt(state) }
 }
 
 export function applyManualAssignmentOverride(inputState, input, options = {}) {
   const result = applyManualAssignmentOverrideCore(inputState, input, options)
-  const state = clearCanceledEventTimes(clone(result.state), result.events)
+  const state = sweepLatestCanceledTimes(clearCanceledEventTimes(clone(result.state), result.events))
   return { ...result, state, nextDueAt: getNextPendingTransitionAt(state) }
 }
 
