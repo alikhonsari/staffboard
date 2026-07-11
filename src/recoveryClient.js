@@ -41,6 +41,11 @@ function queryString(filters = {}) {
   return query ? `?${query}` : ''
 }
 
+export async function loadRecoveryStatus() {
+  const response = await request('/api/recovery/status', { headers: headers() })
+  return response.json()
+}
+
 export async function loadRecoveryVersions(filters = {}) {
   const response = await request(`/api/recovery/versions${queryString(filters)}`, { headers: headers() })
   return response.json()
