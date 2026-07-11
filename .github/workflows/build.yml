@@ -64,6 +64,38 @@ jobs:
           if (builderCss < 0 || builderCss < darkCss) throw new Error('Builder Management CSS must load after Dark Mode v3 CSS')
           if (builderScript < 0) throw new Error('Builder Management controller is missing from index.html')
           NODE
+      - name: Validate Daily PDF v3 assets and fixtures
+        run: |
+          test -s src/DailyPdfReportV3.jsx
+          test -s src/dailyPdfExportV3.js
+          test -s src/dailyPdfLayoutV3.js
+          test -s public/daily-pdf-v3.css
+          grep -q 'data-daily-pdf-page' src/DailyPdfReportV3.jsx
+          grep -q 'Page {pageNumber} of {pageCount}' src/DailyPdfReportV3.jsx
+          grep -q 'No production data recorded' src/DailyPdfReportV3.jsx
+          grep -q 'No staffed areas or area hours recorded' src/DailyPdfReportV3.jsx
+          grep -q 'orientation: .landscape.' src/dailyPdfExportV3.js
+          grep -q 'exportDailyPdfV3' daily-pdf-v3-plugin.js
+          grep -q 'legacy tall-canvas slicing exporter' daily-pdf-v3-validation-plugin.js
+          grep -q 'table-layout:fixed' public/daily-pdf-v3.css
+          grep -q 'width:100%' public/daily-pdf-v3.css
+          node --input-type=module <<'NODE'
+          import { runDailyPdfFixtureChecks } from './src/dailyPdfLayoutV3.js'
+          const result = runDailyPdfFixtureChecks()
+          if (result.empty !== 1) throw new Error('Empty Daily PDF fixture must be one page')
+          console.log('Daily PDF fixture pages:', result)
+          NODE
+          node <<'NODE'
+          const fs = require('fs')
+          const html = fs.readFileSync('index.html', 'utf8')
+          const builderCss = html.indexOf('/builder-management-v3.css')
+          const pdfCss = html.indexOf('/daily-pdf-v3.css')
+          if (pdfCss < 0 || pdfCss < builderCss) throw new Error('Daily PDF v3 CSS must load last')
+          const component = fs.readFileSync('src/DailyPdfReportV3.jsx', 'utf8')
+          if (component.includes('className="pdf-report-sheet"')) throw new Error('Daily PDF v3 must not use the legacy fixed-width sheet')
+          const exporter = fs.readFileSync('src/dailyPdfExportV3.js', 'utf8')
+          if (!exporter.includes("querySelectorAll('[data-daily-pdf-page]')")) throw new Error('Daily PDF exporter must capture explicit pages')
+          NODE
       - name: Install dependencies
         run: npm install
       - name: Build StaffBoard
