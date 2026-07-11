@@ -1,6 +1,6 @@
 import crypto from 'crypto'
-import { buildVersionRecords } from './recovery-core.js'
-import { config, deleteObjectJson, getObjectJson, putObjectJson } from './guarded-server-runtime.js'
+import { buildVersionRecords, detectBackupReason } from './recovery-core.js'
+import { config, deleteObjectJson, getObjectJson, putObjectJson, registerAfterPersistObserver, registerBeforePersistObserver } from './guarded-server-runtime.js'
 
 const MAX_VERSIONS = Number(process.env.STAFFBOARD_VERSION_LIMIT || 500)
 const MAX_BACKUPS = Number(process.env.STAFFBOARD_BACKUP_LIMIT || 120)
@@ -145,4 +145,31 @@ export async function loadBackup(backupId) {
   const record = backups.find((item) => item.id === backupId)
   if (!record) return null
   return getObjectJson(record.key, null)
+}
+
+let observersInstalled = false
+
+export function installRecoveryObservers() {
+  if (observersInstalled) return
+  observersInstalled = true
+  registerBeforePersistObserver(async ({ previousState, nextState, actor, source, previousUpdatedAt }) => {
+    const detected = detectBackupReason(previousState, nextState)
+    const sourceNeedsBackup = /closure|restore|recovery|finalize|template|reset|clear/i.test(String(source || ''))
+    if (detected || sourceNeedsBackup) {
+      await createStateBackup(previousState, {
+        kind: 'pre-action',
+        reason: detected || `Before ${source || 'server action'}`,
+        actor,
+        stateRevision: previousUpdatedAt,
+        boardId: previousState.currentBoardId,
+        shift: previousState.boardShift,
+        week: previousState.weekStartDate,
+        day: previousState.selectedDay,
+      })
+    }
+  })
+  registerAfterPersistObserver(async ({ previousState, nextState, actor, source, stateRevision }) => {
+    await recordStateVersions(previousState, nextState, { actor, source, stateRevision })
+    await ensureCalendarBackups(nextState, { actor, stateRevision })
+  })
 }
