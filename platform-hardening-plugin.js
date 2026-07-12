@@ -6,7 +6,7 @@ const APP_SPEC = {
     'data-staffboard-shell',
     'data-recovery-panel-route',
     'SITE CLOSED',
-    '/api/scheduled-transitions/status',
+    'loadScheduledTransitionStatus',
   ],
   unique: [
     'data-staffboard-shell',
