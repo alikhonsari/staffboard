@@ -1,133 +1,84 @@
 # StaffBoard V6
 
-Full V6 staffing board restored for DigitalOcean App Platform.
+StaffBoard is a shared operations staffing application deployed on DigitalOcean App Platform with DigitalOcean Spaces persistence.
 
 ## Included
 
-- Full weekly V6 staffing board UI.
-- Board tabs, analysis, builders, and comments.
-- Builder master roster, badge colors, training tags, trainer/safety/line-lead flags.
-- Drag-and-drop staffing by area.
-- Q1 / Q2 / Q3 snapshots.
-- Day, weekly, attendance, roster, JSON, PNG, PDF, and Excel exports.
-- SPEED / FA / Bodega board presets from the V6 app.
-- Shared state saved to DigitalOcean Spaces.
-- Shared admin token for multiple admins.
-- Persistent, server-authoritative scheduled clock-in and clock-out transitions.
-- Server-authoritative operational-day and shift closure controls.
-- Server-authoritative version history, scoped undo/restore, snapshots, and administrative recovery exports.
+- Weekly staffing for SPEED, FA Lab, and Bodega
+- Separate Day and Night Shift boards
+- Builder Master List, badges, training tags, and leadership flags
+- Drag-and-drop staffing, attendance, area hours, and Q1/Q2/Q3 snapshots
+- Scheduled clock-in and clock-out transitions
+- Operational-day and shift closure controls
+- Server-authoritative recovery, versions, undo, backups, and exports
+- Audit history and multi-admin synchronization
+- Daily/weekly PDF, Excel, PNG, Slack, manager, analysis, and suggestion outputs
+- Platform diagnostics, health checks, runtime validation, and numeric state revisions
 
-## Scheduled clock transitions
+## Operational rules
 
-Scheduled attendance changes are persisted in the shared Spaces state and evaluated by the server, not by an open browser tab.
+- Day Shift: 8:00 AM–4:30 PM
+- Night Shift: 5:00 PM–1:30 AM
+- Each shift contains eight paid hours and a 30-minute unpaid break.
+- Night Shift activity after midnight belongs to the operational day on which the shift began.
+- Board, shift, week, and operational-day data must not mix.
 
-- Scheduled clock-out keeps the builder active until the complete scheduled timestamp is reached, then closes the current area session, changes the builder to PTO, clears the active area, and updates shared metrics.
-- Scheduled clock-in keeps the builder in PTO until the complete scheduled timestamp is reached, then changes the builder to Present and places them in Unassigned.
-- Pending events are reconciled on startup, state reads, state writes, schedule-status polling, the exact next due time, and a fallback sweep.
-- Each event stores its board, shift, week, operational day, builder, scheduled effective time, actual processed time, actor, and audit history.
-- Night-shift times after midnight remain attached to the prior operational day.
-- Canceled and replaced events cannot overwrite a newer manual status or area change.
+## Server-authoritative scheduling
+
+Scheduled transitions are stored in shared state and evaluated by the server rather than an open browser tab.
+
+- Pending events reconcile on startup, state reads/writes, status polling, the exact due timer, and a fallback sweep.
+- Completed and canceled events cannot be overwritten by older browser state.
+- Closure reconciliation cancels affected pending events while preserving historical work.
 
 ## Operational-day closures
 
-Authorized admins can mark an entire operational day, Day Shift only, or Night Shift only as closed for a holiday, building closure, weather, maintenance, emergency, planned shutdown, or custom reason.
+Admins can close an entire operational day, Day Shift only, or Night Shift only for holiday, building closure, severe weather, maintenance, emergency, planned shutdown, or a custom reason.
 
-- Closure state is stored in the shared Spaces JSON and validated by the server.
-- An entire-day closure covers both the Day Shift and the Night Shift that begins on the selected operational date; the after-midnight portion remains attached to that date.
-- Pending scheduled clock transitions in the affected scope are canceled and audited. Completed transitions and historical staffing, assignment, production, rack, note, and area-hour records remain unchanged.
-- Closed days reject staffing, scheduling, production, note, rack, copy-day, and template changes until an admin reopens the day or shift.
-- Reopening never restores canceled schedules automatically.
-- Closed days are labeled in navigation, boards, PNG captures, Slack summaries, manager views, PDF reports, and Excel exports.
-- Closed days are excluded from staffing, TPH, productivity, utilization, attendance-exception, rotation-fairness, and goal-completion averages instead of being counted as zero-performance days.
+Closed scopes:
 
-Closure endpoints:
+- Preserve assignments, attendance, rack data, production, notes, and history
+- Reject new staffing and scheduling mutations
+- Exclude the closed period from staffing and performance averages rather than counting it as zero
+- Display closure status in boards, manager views, Slack summaries, PNG, PDF, and Excel
+- Never restore canceled scheduled transitions automatically when reopened
+
+Endpoints:
 
 ```text
 GET  /api/day-closures/status
 POST /api/day-closures
 ```
 
-The POST endpoint accepts `close` and `reopen` actions and is restricted to authenticated administrators.
-
 ## Data recovery and version history
 
-The Recovery tab provides server-authoritative protection against accidental clears, bulk edits, template replacement, incorrect assignments, stale sessions, and data corruption.
+The Recovery tab supports:
 
-### Version timeline
+- Filterable version history
+- Restore preview and comparison
+- Undo Last Change
+- Full operational-day restore
+- Individual builder restore
+- Assignments, goals, rack data, or notes restore
+- Manual, daily, weekly, and pre-action backups
+- Full backup restore
+- Emergency administrative exports
+- Platform diagnostics
+- Non-mutating backup verification
 
-Meaningful changes are written to a separate Spaces object rather than being appended indefinitely to the main StaffBoard state. Version records include:
+Scoped restores preserve current closure and scheduled-transition controls.
 
-- Unique version ID and timestamp
-- Admin username
-- Board, shift, week, and operational day
-- Action and entity type
-- Previous and new values
-- Server state revision
-- Source, reason, and related record ID
+### Backup verification
 
-Tracked entities include operational days, individual builder assignments, all day assignments, goals and production metrics, rack lists, day notes, board comments, area definitions, templates, and the Builder Master List.
+Select a backup and choose **Verify Backup**. StaffBoard:
 
-### Undo and restore
+1. Reads the backup without applying it.
+2. Validates metadata and shared-state structure.
+3. Calculates a SHA-256 checksum.
+4. Reports size, revision, creation time, verification time, and verifier.
+5. Stores the verification result in backup index metadata.
 
-Authorized admins can:
-
-- Undo the latest reversible change in the active board and week
-- Filter and restore an individual builder assignment
-- Restore an entire operational day
-- Restore assignments, goals, rack data, or notes independently
-- Preview a restore before applying it
-- Compare two versions
-- Restore a full server snapshot
-
-Scoped restores preserve current pending scheduled clock-in/clock-out fields, schedule history, closure state, and unrelated entities. Locked weeks must be unlocked before scoped restore. Full backup recovery requires explicit confirmation when locked weeks exist.
-
-Every restore:
-
-1. Validates the browser's base state revision.
-2. Creates a pre-restore snapshot.
-3. Applies only the selected scope unless full-backup recovery was explicitly selected.
-4. Writes a new audit event and recovery notification.
-5. Persists before reporting success.
-6. Refreshes other open admin sessions through the recovery revision poll.
-
-### Automatic backups
-
-StaffBoard creates separate Spaces snapshots:
-
-- Before Clear Day
-- Before Reset Week
-- Before full-day/template-style replacements
-- Before large bulk assignment changes
-- Before closure changes
-- Before restore operations
-- Once per active calendar day
-- Once per calendar week
-
-The default retention policy keeps the newest 120 backup objects and the newest 500 detailed version records. Older backup objects are deleted when retention is exceeded.
-
-Optional configuration:
-
-```bash
-STAFFBOARD_VERSION_LIMIT=500
-STAFFBOARD_BACKUP_LIMIT=120
-SPACES_VERSION_HISTORY_KEY=weekly/staffboard-2/version-history.json
-SPACES_BACKUP_INDEX_KEY=weekly/staffboard-2/backups/index.json
-SPACES_BACKUP_PREFIX=weekly/staffboard-2/backups/
-```
-
-### Emergency administrative exports
-
-The Recovery tab can download the current server-authoritative:
-
-- Full state
-- Selected week
-- Selected operational day
-- Builder Master List
-- Audit history
-- Operational action records
-- Leadership impact records
-
-Exports never contain DigitalOcean Spaces credentials.
+A full backup restore is rejected when the selected backup does not pass verification.
 
 Recovery endpoints:
 
@@ -138,22 +89,81 @@ GET  /api/recovery/backups
 POST /api/recovery/preview
 POST /api/recovery/actions
 GET  /api/recovery/export
+POST /api/platform/backups/verify
 ```
 
-## Data recovery troubleshooting
+## Numeric state revisions
 
-- **Outdated browser:** refresh before retrying. Recovery actions reject stale `baseUpdatedAt` values.
-- **Locked week:** unlock the week before a scoped restore.
-- **No versions shown:** make a meaningful board change, then refresh the Recovery tab.
-- **Restore completed elsewhere:** open sessions refresh automatically when `recoveryRevision` changes.
-- **Spaces failure:** the destructive action is blocked when its required pre-action backup cannot be written.
-- **Full snapshot recovery:** use only when scoped restoration is insufficient because it intentionally replaces broad state while preserving current server-managed closure and scheduling controls.
+StaffBoard now persists both:
 
-The default site timezone is `America/New_York`. Override it only when the physical site timezone changes:
+- `updatedAt` for display and backward compatibility
+- `stateRevision` for deterministic optimistic concurrency
 
-```bash
-STAFFBOARD_TIME_ZONE=America/New_York
+New clients send `baseStateRevision`. Older clients may continue sending `baseUpdatedAt`. A stale write receives the current timestamp and numeric revision before the browser reloads authoritative state.
+
+## Platform health and diagnostics
+
+Health endpoints:
+
+```text
+GET /api/health
+GET /api/health/live
+GET /api/health/ready
 ```
+
+- `live` confirms the process is running.
+- `ready` validates production configuration and performs a read-only Spaces check.
+- The standard endpoint returns sanitized application, revision, state-size, latency, scheduling, recovery, and degraded-status information.
+
+Authorized diagnostics endpoints:
+
+```text
+GET /api/platform/diagnostics
+GET /api/platform/config
+```
+
+The Recovery tab includes a copyable diagnostics report. It never includes tokens, passwords, authorization headers, cookies, Spaces keys, or complete state payloads.
+
+## Structured errors and request IDs
+
+Every API request receives an `x-request-id` response header. New platform errors retain the legacy top-level `error` string and add:
+
+```json
+{
+  "errorDetail": {
+    "code": "STATE_REVISION_CONFLICT",
+    "message": "The board changed in another session.",
+    "retryable": true,
+    "details": {},
+    "requestId": "..."
+  }
+}
+```
+
+Structured server logs are JSON and redact sensitive fields.
+
+## Permissions foundation
+
+The centralized permission model defines Read Only, Line Lead, Admin, Manager, and System roles. Existing admins retain current access. Platform diagnostics and backup verification require elevated access.
+
+Granular migration of all legacy routes is tracked in the platform-hardening roadmap.
+
+## Transform safety
+
+Legacy Vite source transforms remain temporarily for compatibility. The final post-transform build now verifies critical markers for:
+
+- Sidebar shell
+- Recovery route and sync bridge
+- Closure controls
+- Scheduled transition integration
+
+Missing or duplicate required injections fail the build. The build emits:
+
+```text
+dist/transform-diagnostics.json
+```
+
+See `docs/transform-migration.md` for the incremental retirement plan.
 
 ## DigitalOcean App Platform
 
@@ -175,9 +185,15 @@ Port:
 8787
 ```
 
-## Required environment variables
+Recommended readiness path:
 
-Set these only in DigitalOcean App Platform. Do not commit real values to GitHub.
+```text
+/api/health/ready
+```
+
+## Required production variables
+
+Set secrets only in DigitalOcean App Platform.
 
 ```bash
 PORT=8787
@@ -191,38 +207,59 @@ SPACES_OBJECT_KEY=weekly/staffboard-2/staffboard-state.json
 STAFFBOARD_TIME_ZONE=America/New_York
 ```
 
-## Validation
+Production startup fails clearly when authentication or Spaces is not fully configured.
 
-Run the same validation used by the pull-request workflow:
+## Optional platform variables
 
 ```bash
+GIT_COMMIT_SHA=
+BUILD_TIME=
+STAFFBOARD_VALIDATION_MODE=compatible
+STAFFBOARD_STATE_WARNING_BYTES=8388608
+STAFFBOARD_SAVE_LATENCY_WARNING_MS=2000
+STAFFBOARD_READINESS_TIMEOUT_MS=5000
+STAFFBOARD_SHUTDOWN_TIMEOUT_MS=10000
+STAFFBOARD_VERSION_LIMIT=500
+STAFFBOARD_BACKUP_LIMIT=120
+SPACES_VERSION_HISTORY_KEY=weekly/staffboard-2/version-history.json
+SPACES_BACKUP_INDEX_KEY=weekly/staffboard-2/backups/index.json
+SPACES_BACKUP_PREFIX=weekly/staffboard-2/backups/
+```
+
+## Validation
+
+```bash
+npm run lint
+npm test
+npm run build
 npm run check
 ```
 
-This performs syntax checks, all Node tests, and the production Vite build.
-
-Focused Phase 1 validation:
+Focused suites:
 
 ```bash
+npm run test:scheduling
+npm run test:closures
 npm run test:recovery
+npm run test:platform
 ```
 
-## Health check
+## Graceful shutdown
 
-After deploy:
+On SIGTERM or SIGINT StaffBoard stops scheduling/reconciliation timers, stops accepting connections, waits for the serialized write queue, and exits within a safety timeout.
 
-```text
-/api/health
-```
+## Documentation
 
-Expected fields:
+- `docs/architecture.md`
+- `docs/state-model.md`
+- `docs/persistence.md`
+- `docs/security.md`
+- `docs/testing.md`
+- `docs/deployment.md`
+- `docs/database-migration-plan.md`
+- `docs/transform-migration.md`
+- `docs/adr/`
 
-```json
-{
-  "ok": true,
-  "authConfigured": true,
-  "spacesConfigured": true
-}
-```
+## Rollback
 
-When the app opens, it will ask each admin for the shared admin token once and then save it in that browser.
+The platform changes are backward-compatible. Rolling back the application does not require removing `stateRevision` or backup verification metadata. Do not delete Spaces objects during rollback. See `docs/deployment.md` for the complete procedure.
