@@ -1,4 +1,4 @@
-import { getRemoteUpdatedAt, loadRemoteState } from './storageAdapter'
+import { getRemoteStateRevision, getRemoteUpdatedAt, loadRemoteState } from './storageAdapter'
 
 const LOGIN_TOKEN_KEY = 'staffboard2_token'
 const AUTH_TOKEN_KEY = 'staffboard_shared_auth_token'
@@ -21,9 +21,10 @@ async function request(url, options = {}) {
     if (response.status === 401) throw new Error('Invalid admin session. Please log in again.')
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}))
-      const error = new Error(payload.error || 'Recovery request failed.')
+      const error = new Error(payload.errorDetail?.message || payload.error || 'Recovery request failed.')
       error.status = response.status
       error.conflict = !!payload.conflict
+      error.requestId = payload.requestId || ''
       throw error
     }
     return response
@@ -73,6 +74,7 @@ export async function requestRecoveryAction(action, details = {}, defaultState =
       action,
       requestId: details.requestId || globalThis.crypto?.randomUUID?.() || `recovery-${Date.now()}`,
       baseUpdatedAt: getRemoteUpdatedAt(),
+      baseStateRevision: getRemoteStateRevision(),
       ...details,
     }),
   })
