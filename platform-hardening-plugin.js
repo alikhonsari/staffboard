@@ -9,7 +9,6 @@ const APP_SPEC = {
     'loadScheduledTransitionStatus',
   ],
   unique: [
-    'data-staffboard-shell',
     'data-recovery-panel-route',
     'data-recovery-sync-bridge',
   ],
