@@ -3,6 +3,8 @@ import {
   downloadRecoveryExport, loadRecoveryBackups, loadRecoveryVersions,
   previewRecoveryVersion, requestRecoveryAction,
 } from './recoveryClient'
+import { verifyServerBackup } from './diagnosticsClient'
+import DiagnosticsPanel from './DiagnosticsPanel'
 import './recovery.css'
 
 const ENTITY_LABELS = {
@@ -31,6 +33,7 @@ export default function RecoveryPanel({ state, setState, defaultState, normalize
   const [compareVersionId, setCompareVersionId] = useState('')
   const [selectedBackupId, setSelectedBackupId] = useState('')
   const [preview, setPreview] = useState(null)
+  const [verification, setVerification] = useState(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -121,6 +124,23 @@ export default function RecoveryPanel({ state, setState, defaultState, normalize
     await runAction('restore_backup', { backupId: selectedBackupId, reason, confirmLocked: false })
   }
 
+  const verifyBackup = async () => {
+    if (!selectedBackupId) return setError('Select a backup first.')
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const payload = await verifyServerBackup(selectedBackupId)
+      setVerification(payload.result || null)
+      setMessage(payload.result?.valid ? 'Backup verification passed.' : 'Backup verification found problems.')
+      await refresh()
+    } catch (verifyError) {
+      setError(verifyError?.message || 'Backup verification failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const exportScope = async (scope) => {
     setBusy(true)
     setError('')
@@ -144,6 +164,7 @@ export default function RecoveryPanel({ state, setState, defaultState, normalize
             <span className="pill">Week {state.weekStartDate}</span>
             <span className="pill">{state.selectedDay}</span>
             <span className="pill">Admin: {user?.username || state.adminName || 'Unknown'}</span>
+            <span className="pill">Revision: {Number(state.stateRevision || 0)}</span>
           </div>
         </div>
         <button className="secondary" type="button" onClick={refresh} disabled={busy}>Refresh</button>
@@ -182,7 +203,7 @@ export default function RecoveryPanel({ state, setState, defaultState, normalize
             </select>
             <select aria-label="Filter by entity type" value={filters.entityType} onChange={(event) => setFilters({ ...filters, entityType: event.target.value })}>
               <option value="">All record types</option>
-              {Object.entries(ENTITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(ENTITY_LABELS).map(([entryValue, label]) => <option key={entryValue} value={entryValue}>{label}</option>)}
             </select>
             <input aria-label="Filter by action" placeholder="Action contains…" value={filters.action} onChange={(event) => setFilters({ ...filters, action: event.target.value })} />
             <button className="secondary" type="button" onClick={refresh} disabled={busy}>Apply Filters</button>
@@ -227,11 +248,23 @@ export default function RecoveryPanel({ state, setState, defaultState, normalize
         <section className="card recovery-section">
           <div className="table-kicker">Server Backups</div>
           <div className="small">Snapshots are stored separately from the main StaffBoard state in DigitalOcean Spaces.</div>
-          <select className="recovery-backup-select" aria-label="Select server backup" value={selectedBackupId} onChange={(event) => setSelectedBackupId(event.target.value)}>
+          <select className="recovery-backup-select" aria-label="Select server backup" value={selectedBackupId} onChange={(event) => { setSelectedBackupId(event.target.value); setVerification(null) }}>
             <option value="">Select backup…</option>
             {backups.map((backup) => <option key={backup.id} value={backup.id}>{displayTime(backup.createdAt)} · {backup.kind} · {backup.reason}</option>)}
           </select>
-          <button className="danger" type="button" onClick={restoreBackup} disabled={busy || !selectedBackupId}>Restore Full Backup</button>
+          <div className="recovery-button-row">
+            <button className="secondary" type="button" onClick={verifyBackup} disabled={busy || !selectedBackupId}>Verify Backup</button>
+            <button className="danger" type="button" onClick={restoreBackup} disabled={busy || !selectedBackupId}>Restore Full Backup</button>
+          </div>
+          {verification ? (
+            <dl className="backup-verification-result">
+              <div><dt>Status</dt><dd>{verification.status}</dd></div>
+              <div><dt>Checksum</dt><dd>{verification.checksum}</dd></div>
+              <div><dt>Size</dt><dd>{verification.sizeBytes} bytes</dd></div>
+              <div><dt>State revision</dt><dd>{verification.stateRevision || verification.legacyRevision || '—'}</dd></div>
+              <div><dt>Verified</dt><dd>{displayTime(verification.verifiedAt)} by {verification.verifiedBy}</dd></div>
+            </dl>
+          ) : null}
         </section>
 
         <section className="card recovery-section">
@@ -248,6 +281,8 @@ export default function RecoveryPanel({ state, setState, defaultState, normalize
           </div>
         </section>
       </div>
+
+      <DiagnosticsPanel />
     </div>
   )
 }

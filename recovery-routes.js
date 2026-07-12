@@ -8,21 +8,36 @@ import {
 import {
   createStateBackup, installRecoveryObservers, listBackups, listVersions, loadBackup, loadVersion,
 } from './recovery-store.js'
+import { assertValidAction } from './platform/validation.js'
+import { assertBackupVerified, verifyBackupEnvelope } from './platform/backup-verification.js'
+import { recordError } from './platform/diagnostics.js'
 
 let installed = false
 const clean = (value) => String(value || '').trim()
 const clone = (value) => value == null ? value : JSON.parse(JSON.stringify(value))
 
 function conflict(res, message) {
-  return res.status(409).json({ error: message, conflict: true, currentUpdatedAt: runtime.currentStateVersion })
+  return res.status(409).json({
+    error: message,
+    conflict: true,
+    currentUpdatedAt: runtime.currentStateVersion,
+    currentStateRevision: Number(runtime.currentStateRevision || 0),
+    requestId: res.locals?.requestId || null,
+  })
 }
 
 function requireFreshRevision(body, res) {
-  if (!Object.prototype.hasOwnProperty.call(body || {}, 'baseUpdatedAt')) {
+  const hasTimestamp = Object.prototype.hasOwnProperty.call(body || {}, 'baseUpdatedAt')
+  const hasRevision = Object.prototype.hasOwnProperty.call(body || {}, 'baseStateRevision')
+  if (!hasTimestamp && !hasRevision) {
     conflict(res, 'This browser session is outdated. Refresh before using recovery tools.')
     return false
   }
-  if (String(body.baseUpdatedAt || '') !== String(runtime.currentStateVersion || '')) {
+  if (hasRevision && Number(body.baseStateRevision || 0) !== Number(runtime.currentStateRevision || 0)) {
+    conflict(res, 'The board changed in another session. Reload before restoring or undoing data.')
+    return false
+  }
+  if (!hasRevision && String(body.baseUpdatedAt || '') !== String(runtime.currentStateVersion || '')) {
     conflict(res, 'The board changed in another session. Reload before restoring or undoing data.')
     return false
   }
@@ -67,8 +82,9 @@ function recoveryAudit(state, details) {
 async function versionsHandler(req, res) {
   try {
     const versions = await listVersions(req.query || {})
-    return res.json({ versions, count: versions.length, currentUpdatedAt: runtime.currentStateVersion || '' })
+    return res.json({ versions, count: versions.length, currentUpdatedAt: runtime.currentStateVersion || '', currentStateRevision: Number(runtime.currentStateRevision || 0) })
   } catch (error) {
+    recordError(error)
     return res.status(500).json({ error: error.message || 'Failed to load version history.' })
   }
 }
@@ -76,8 +92,9 @@ async function versionsHandler(req, res) {
 async function backupsHandler(req, res) {
   try {
     const backups = await listBackups(req.query?.limit || 50)
-    return res.json({ backups, count: backups.length, currentUpdatedAt: runtime.currentStateVersion || '' })
+    return res.json({ backups, count: backups.length, currentUpdatedAt: runtime.currentStateVersion || '', currentStateRevision: Number(runtime.currentStateRevision || 0) })
   } catch (error) {
+    recordError(error)
     return res.status(500).json({ error: error.message || 'Failed to load backups.' })
   }
 }
@@ -101,6 +118,7 @@ async function previewHandler(req, res) {
     })
     return res.json({ preview: result })
   } catch (error) {
+    recordError(error)
     return res.status(400).json({ error: error.message || 'Failed to preview restore.' })
   }
 }
@@ -117,16 +135,18 @@ async function actionHandler(req, res) {
   try {
     if (!config.spacesConfigured) return res.status(500).json({ error: 'Spaces is not configured' })
     const body = req.body || {}
+    assertValidAction('recovery', body)
     const actor = req.user?.username || 'System'
     const action = clean(body.action)
     const response = await enqueue(async () => {
       const reconciled = await reconcilePersistedState('pre-recovery-action')
       const current = reconciled.payload.state || {}
+      const currentRevision = Number(reconciled.payload.stateRevision || current.stateRevision || 0)
 
       if (action === 'create_backup') {
         const backup = await createStateBackup(current, {
           kind: body.kind || 'manual', reason: body.reason || 'Manual administrative backup', actor,
-          stateRevision: reconciled.payload.updatedAt || '', boardId: current.currentBoardId,
+          stateRevision: currentRevision, boardId: current.currentBoardId,
           shift: current.boardShift, week: current.weekStartDate, day: current.selectedDay,
         })
         await appendHistory({ id: `recovery-backup-${backup.id}`, at: backup.createdAt, user: actor, action: 'Created administrative backup', actionType: 'BACKUP_CREATED', boardId: backup.boardId, weekStartDate: backup.week, selectedDay: backup.day, backupId: backup.id, source: 'Data Recovery' })
@@ -154,7 +174,7 @@ async function actionHandler(req, res) {
         }
         const version = await loadVersion(versionId)
         if (!version) throw new Error('The selected version no longer exists.')
-        await createStateBackup(current, { kind: 'pre-restore', reason: `Before restoring ${version.id}`, actor, stateRevision: reconciled.payload.updatedAt || '', boardId: version.boardId, shift: version.shift, week: version.week, day: version.day })
+        await createStateBackup(current, { kind: 'pre-restore', reason: `Before restoring ${version.id}`, actor, stateRevision: currentRevision, boardId: version.boardId, shift: version.shift, week: version.week, day: version.day })
         const restored = applyVersionRestore(current, version, { actor, reason: body.reason || '', direction: body.direction, now: new Date() })
         nextState = restored.state
         relatedRecordId = version.id
@@ -166,14 +186,16 @@ async function actionHandler(req, res) {
         assertBackupRestoreAllowed(current, body.confirmLocked === true)
         const backup = await loadBackup(body.backupId)
         if (!backup?.state) throw new Error('The selected backup could not be loaded.')
-        await createStateBackup(current, { kind: 'pre-restore', reason: `Before restoring backup ${body.backupId}`, actor, stateRevision: reconciled.payload.updatedAt || '' })
+        const verification = verifyBackupEnvelope(backup, { backupId: body.backupId, actor })
+        assertBackupVerified(verification)
+        await createStateBackup(current, { kind: 'pre-restore', reason: `Before restoring backup ${body.backupId}`, actor, stateRevision: currentRevision })
         const scheduled = reconcileIncomingManualChanges(current, clone(backup.state), { actor, timeZone: config.timeZone, now: new Date() })
         nextState = preserveServerManagedClosures(current, scheduled.state)
         nextState.auditLog = Array.isArray(current.auditLog) ? clone(current.auditLog) : []
         relatedRecordId = body.backupId
         restoredEntity = 'full_state_backup'
         actionLabel = 'Restore Backup'
-        message = 'The selected backup was restored while preserving current closure and scheduled-transition controls.'
+        message = 'The verified backup was restored while preserving current closure and scheduled-transition controls.'
       } else {
         throw new Error('Unknown recovery action.')
       }
@@ -183,7 +205,7 @@ async function actionHandler(req, res) {
         actor, action: actionLabel, reason: body.reason || '', relatedRecordId,
         boardId: body.boardId || current.currentBoardId, shift: current.boardShift,
         week: body.weekStartDate || current.weekStartDate, day: body.day || current.selectedDay,
-        revision: reconciled.payload.updatedAt || '', newValue: restoredEntity,
+        revision: currentRevision, newValue: restoredEntity,
       })
       const payload = await persistState(nextState, actor, `recovery-${action}`, [])
       await appendHistory({
@@ -195,10 +217,11 @@ async function actionHandler(req, res) {
       return { payload, changed: true, message, restoredEntity, relatedRecordId }
     })
     if (!response) return
-    return res.json({ ...response.payload, changed: response.changed, duplicate: !!response.duplicate, backup: response.backup || null, restoredEntity: response.restoredEntity || '', relatedRecordId: response.relatedRecordId || '', message: response.message })
+    return res.json({ ...response.payload, stateRevision: Number(response.payload.stateRevision || response.payload.state?.stateRevision || 0), changed: response.changed, duplicate: !!response.duplicate, backup: response.backup || null, restoredEntity: response.restoredEntity || '', relatedRecordId: response.relatedRecordId || '', message: response.message })
   } catch (error) {
+    recordError(error)
     console.error('Recovery action failed:', error)
-    return res.status(/locked|outdated|changed in another/i.test(error.message || '') ? 409 : 400).json({ error: error.message || 'Recovery action failed.' })
+    return res.status(/locked|outdated|changed in another/i.test(error.message || '') ? 409 : (error.status || 400)).json({ error: error.message || 'Recovery action failed.', details: error.details || {}, requestId: req.requestId || null })
   }
 }
 
@@ -215,6 +238,7 @@ async function exportHandler(req, res) {
     res.setHeader('Content-Disposition', `attachment; filename="staffboard-admin-backup-${safeScope}-${new Date().toISOString().slice(0, 10)}.json"`)
     return res.send(JSON.stringify(result, null, 2))
   } catch (error) {
+    recordError(error)
     return res.status(400).json({ error: error.message || 'Failed to create administrative export.' })
   }
 }
