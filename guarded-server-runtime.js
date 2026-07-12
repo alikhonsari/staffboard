@@ -5,6 +5,10 @@ import {
   DEFAULT_SITE_TIME_ZONE, getNextPendingTransitionAt, processDueScheduledTransitions,
 } from './scheduled-transitions-core.js'
 import { reconcileClosedDaySchedules } from './day-closures-core.js'
+import {
+  recordError, recordReconciliation, recordStateRead, recordStateWrite,
+} from './platform/diagnostics.js'
+import { assertValidState } from './platform/validation.js'
 
 dotenv.config()
 
@@ -31,6 +35,7 @@ const s3 = config.spacesConfigured ? new S3Client({
 
 export const runtime = {
   currentStateVersion: null,
+  currentStateRevision: 0,
   queue: Promise.resolve(),
   scheduleTimer: null,
   fallbackTimer: null,
@@ -53,21 +58,36 @@ async function streamToString(stream) {
 }
 
 export async function getObjectJson(key, fallback) {
+  const started = Date.now()
   try {
     if (!s3) throw new Error('Spaces is not configured')
     const output = await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }))
     const text = await streamToString(output.Body)
-    return text ? JSON.parse(text) : fallback
+    const parsed = text ? JSON.parse(text) : fallback
+    recordStateRead({ durationMs: Date.now() - started, bytes: Buffer.byteLength(text || ''), success: true })
+    return parsed
   } catch (error) {
     const name = String(error?.name || error?.Code || '')
-    if (name.includes('NoSuchKey') || error?.$metadata?.httpStatusCode === 404) return fallback
+    if (name.includes('NoSuchKey') || error?.$metadata?.httpStatusCode === 404) {
+      recordStateRead({ durationMs: Date.now() - started, bytes: 0, success: true })
+      return fallback
+    }
+    recordStateRead({ durationMs: Date.now() - started, success: false, error })
     throw error
   }
 }
 
 export async function putObjectJson(key, payload) {
-  if (!s3) throw new Error('Spaces is not configured')
-  await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: JSON.stringify(payload, null, 2), ContentType: 'application/json' }))
+  const started = Date.now()
+  const body = JSON.stringify(payload, null, 2)
+  try {
+    if (!s3) throw new Error('Spaces is not configured')
+    await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: body, ContentType: 'application/json' }))
+    recordStateWrite({ durationMs: Date.now() - started, bytes: Buffer.byteLength(body), success: true, revision: payload?.stateRevision || payload?.state?.stateRevision || 0 })
+  } catch (error) {
+    recordStateWrite({ durationMs: Date.now() - started, bytes: Buffer.byteLength(body), success: false, error })
+    throw error
+  }
 }
 
 export async function deleteObjectJson(key) {
@@ -90,6 +110,7 @@ export async function appendHistory(entry) {
     rows.unshift(entry)
     await putObjectJson(config.historyKey, { events: rows.slice(0, 500), updatedAt: new Date().toISOString() })
   } catch (error) {
+    recordError(error)
     console.warn('Failed to write StaffBoard history:', error.message)
   }
 }
@@ -126,28 +147,41 @@ function closureHistory(event, state, source) {
 export const historyEntryForEvent = (event, state, source) => event?.kind === 'closure' ? closureHistory(event, state, source) : scheduleHistory(event, state, source)
 
 export async function persistState(state, actor, source, events = []) {
-  const previousPayload = await getObjectJson(config.key, { state: {}, updatedAt: '' })
+  const previousPayload = await getObjectJson(config.key, { state: {}, updatedAt: '', stateRevision: 0 })
   const previousState = previousPayload.state || {}
-  const context = { previousState, nextState: state, actor: actor || 'System', source, events, previousUpdatedAt: previousPayload.updatedAt || '' }
+  const nextRevision = Math.max(Number(previousPayload.stateRevision || 0), Number(previousState.stateRevision || 0), Number(runtime.currentStateRevision || 0)) + 1
+  state.stateRevision = nextRevision
+  assertValidState(state)
+  const context = { previousState, nextState: state, actor: actor || 'System', source, events, previousUpdatedAt: previousPayload.updatedAt || '', previousStateRevision: Number(previousPayload.stateRevision || previousState.stateRevision || 0) }
   for (const observer of runtime.beforePersistObservers) await observer(context)
 
   const savedAt = new Date().toISOString()
-  const payload = { state: { ...state, updatedAt: savedAt }, updatedAt: savedAt, updatedBy: actor || 'System' }
+  const payload = { state: { ...state, updatedAt: savedAt, stateRevision: nextRevision }, updatedAt: savedAt, stateRevision: nextRevision, updatedBy: actor || 'System' }
   await putObjectJson(config.key, payload)
   runtime.currentStateVersion = savedAt
+  runtime.currentStateRevision = nextRevision
   for (const event of events) await appendHistory(historyEntryForEvent(event, payload.state, source))
-  for (const observer of runtime.afterPersistObservers) await observer({ ...context, payload, nextState: payload.state, stateRevision: savedAt })
+  for (const observer of runtime.afterPersistObservers) {
+    try {
+      await observer({ ...context, payload, nextState: payload.state, stateRevision: nextRevision })
+    } catch (error) {
+      recordError(error)
+      console.warn('StaffBoard post-persist observer failed after state was saved:', error.message)
+    }
+  }
   scheduleNext(payload.state)
   return payload
 }
 
 export async function reconcilePersistedState(source = 'reconciliation') {
-  if (!config.spacesConfigured) return { changed: false, payload: { state: {}, updatedAt: '' }, events: [] }
-  const payload = await getObjectJson(config.key, { state: {}, updatedAt: '' })
+  if (!config.spacesConfigured) return { changed: false, payload: { state: {}, updatedAt: '', stateRevision: 0 }, events: [] }
+  const payload = await getObjectJson(config.key, { state: {}, updatedAt: '', stateRevision: 0 })
   runtime.currentStateVersion = String(payload.updatedAt || '')
+  runtime.currentStateRevision = Number(payload.stateRevision || payload.state?.stateRevision || 0)
   const closures = reconcileClosedDaySchedules(payload.state || {}, { actor: 'System', now: new Date() })
   const schedules = processDueScheduledTransitions(closures.state || payload.state || {}, new Date(), { timeZone: config.timeZone, actor: 'System' })
   const events = [...(closures.events || []), ...(schedules.events || [])]
+  recordReconciliation({ revision: runtime.currentStateRevision })
   if (!closures.changed && !schedules.changed) {
     scheduleNext(payload.state || {})
     return { state: payload.state || {}, changed: false, events: [], payload }
@@ -174,7 +208,8 @@ export function requireAdminAuth(req, res, next) {
       const expected = crypto.createHmac('sha256', config.authSecret).update(body).digest('base64url')
       if (Buffer.byteLength(sig) === Buffer.byteLength(expected) && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
         const session = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8'))
-        if ((!session.exp || Date.now() <= session.exp) && (session.role || 'admin') === 'admin') { req.user = session; return next() }
+        const role = String(session.role || 'admin').toLowerCase()
+        if ((!session.exp || Date.now() <= session.exp) && ['admin', 'manager', 'system'].includes(role)) { req.user = session; return next() }
       }
     }
   } catch { /* fall through */ }
@@ -229,5 +264,12 @@ export function validateAndRepairState(req, res) {
   state.recoveryRevision = Number(state.recoveryRevision || 0)
   state.recoveryNotifications = Array.isArray(state.recoveryNotifications) ? state.recoveryNotifications : []
   state.recoveryRequests = Array.isArray(state.recoveryRequests) ? state.recoveryRequests : []
+  state.stateRevision = Math.max(Number(state.stateRevision || 0), Number(runtime.currentStateRevision || 0))
+  try {
+    assertValidState(state)
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Shared state validation failed.', invalidState: true, details: error.details || {} })
+    return false
+  }
   return true
 }
