@@ -6,9 +6,12 @@ const REQUEST_TIMEOUT_MS = 12000
 
 let remoteHydrated = false
 let remoteUpdatedAt = null
+let remoteStateRevision = 0
 let lastRemoteStateJson = ''
 let saveQueue = Promise.resolve()
 let conflictReloading = false
+let lastSyncAt = ''
+let lastSaveError = ''
 
 export const defaultStorageConfig = {
   mode: 'spaces-auto',
@@ -29,6 +32,7 @@ function normalize(defaultState, saved) {
   merged.dayClosures = saved.dayClosures && typeof saved.dayClosures === 'object' ? saved.dayClosures : {}
   merged.closureRevision = Number(saved.closureRevision || 0)
   merged.closureNotifications = Array.isArray(saved.closureNotifications) ? saved.closureNotifications : []
+  merged.stateRevision = Number(saved.stateRevision || 0)
   return merged
 }
 
@@ -64,7 +68,7 @@ async function responseMessage(res, fallback) {
     const type = res.headers.get('content-type') || ''
     if (type.includes('application/json')) {
       const data = await res.json()
-      return data.error || data.message || fallback
+      return data.errorDetail?.message || data.error || data.message || fallback
     }
     const text = await res.text()
     return text || fallback
@@ -76,8 +80,12 @@ async function responseMessage(res, fallback) {
 function rememberRemotePayload(payload, defaultState = {}) {
   const normalized = normalize(defaultState, payload.state || {})
   remoteUpdatedAt = String(payload.updatedAt || '')
+  remoteStateRevision = Number(payload.stateRevision || normalized.stateRevision || 0)
+  normalized.stateRevision = remoteStateRevision
   remoteHydrated = true
   lastRemoteStateJson = JSON.stringify(normalized)
+  lastSyncAt = new Date().toISOString()
+  lastSaveError = ''
   localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)
   return normalized
 }
@@ -97,6 +105,7 @@ function reloadOnConflict(detail = {}) {
     sessionStorage.setItem('staffboard_last_conflict', JSON.stringify({
       at: new Date().toISOString(),
       updatedAt: detail.updatedAt || '',
+      stateRevision: Number(detail.stateRevision || 0),
       updatedBy: detail.updatedBy || '',
     }))
   } catch {}
@@ -141,6 +150,7 @@ async function performRemoteSave(state) {
     body: JSON.stringify({
       state,
       baseUpdatedAt: remoteUpdatedAt ?? '',
+      baseStateRevision: Number(remoteStateRevision || 0),
     }),
   })
 
@@ -155,17 +165,25 @@ async function performRemoteSave(state) {
     reloadOnConflict({
       message: conflict.error || 'Board changed in another session.',
       updatedAt: latest?.payload?.updatedAt || conflict.currentUpdatedAt || '',
+      stateRevision: Number(latest?.payload?.stateRevision || conflict.currentStateRevision || 0),
       updatedBy: latest?.payload?.updatedBy || '',
     })
     throw new Error(conflict.error || 'Board changed in another session. Reloading latest version.')
   }
 
-  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to save remote state'))
+  if (!res.ok) {
+    lastSaveError = await responseMessage(res, 'Failed to save remote state')
+    throw new Error(lastSaveError)
+  }
 
   const payload = await res.json()
   remoteUpdatedAt = String(payload.updatedAt || remoteUpdatedAt || '')
+  remoteStateRevision = Number(payload.stateRevision || payload.state?.stateRevision || remoteStateRevision || 0)
   remoteHydrated = true
-  lastRemoteStateJson = JSON.stringify(payload.state || state)
+  const savedState = { ...(payload.state || state), stateRevision: remoteStateRevision }
+  lastRemoteStateJson = JSON.stringify(savedState)
+  lastSyncAt = new Date().toISOString()
+  lastSaveError = ''
   localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)
   return payload
 }
@@ -236,6 +254,21 @@ export async function loadDayClosureStatus() {
 
 export function getRemoteUpdatedAt() {
   return remoteUpdatedAt || ''
+}
+
+export function getRemoteStateRevision() {
+  return Number(remoteStateRevision || 0)
+}
+
+export function getStorageDiagnostics() {
+  return {
+    remoteHydrated,
+    remoteUpdatedAt: remoteUpdatedAt || '',
+    remoteStateRevision: Number(remoteStateRevision || 0),
+    lastSyncAt,
+    lastSaveError,
+    saveQueued: Boolean(saveQueue),
+  }
 }
 
 export async function loadHistory() {
