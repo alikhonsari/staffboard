@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   buildDayClosurePayload, createDayClosureError, validateDayClosurePayload, validateDayClosureSuccess,
 } from '../src/day-closure-client-core.js'
@@ -86,4 +87,11 @@ test('mutation revision guard accepts current revision and rejects missing or st
   assert.equal(stale.ok, false)
   assert.equal(stale.reason, 'revision')
   assert.equal(stale.currentRevision, 8)
+})
+
+test('scheduled-transition and day-closure endpoints remain wired to their own handlers', () => {
+  const source = readFileSync(new URL('../guarded-server-routes.js', import.meta.url), 'utf8')
+  assert.match(source, /app\.post\('\/api\/scheduled-transitions', requireAdminAuth, scheduleAction\)/)
+  assert.match(source, /app\.post\('\/api\/day-closures', requireAdminAuth, closureAction\)/)
+  assert.doesNotMatch(source, /app\.post\('\/api\/scheduled-transitions'[^\n]*closureAction/)
 })
