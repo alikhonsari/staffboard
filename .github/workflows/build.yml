@@ -99,7 +99,10 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Lint StaffBoard
-        run: npm run lint
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee lint-output.log
       - name: Test StaffBoard
         run: npm test
       - name: Build StaffBoard
@@ -115,5 +118,6 @@ jobs:
           path: |
             speed-lite-transform-status.json
             daily-pdf-v3-transform-status.json
+            lint-output.log
             build-output.log
           if-no-files-found: ignore
