@@ -1,7 +1,7 @@
 {
   "name": "staffboard-final-full-spaces",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "node server-guarded-closures.js",
@@ -12,8 +12,9 @@
     "test:closures": "node --test test/day-closures-core.test.js test/day-closure-plugin.test.js",
     "test:recovery": "node --test test/recovery-core.test.js test/recovery-direct-save.test.js test/recovery-policy.test.js test/recovery-ui-plugin.test.js",
     "test:platform": "node --test test/platform-foundation.test.js test/platform-validation-backup.test.js test/platform-transform-diagnostics.test.js",
-    "test:excel": "node --test test/reporting-v2.test.js",
-    "lint:excel": "mkdir -p dist && (node --check reporting-v2-plugin.js && node --check src/reporting-v2.js) 2>dist/transform-diagnostics.json",
+    "test:excel": "node --test test/reporting-v2.test.js test/area-hours-core.test.js",
+    "test:area-hours": "node --test test/area-hours-core.test.js",
+    "lint:excel": "mkdir -p dist && (node --check reporting-v2-plugin.js && node --check area-hours-reporting-plugin.js && node --check builder-area-hours-plugin.js && node --check src/reporting-v2.js && node --check src/reporting-area-hours.js && node --check src/area-hours-core.js) 2>dist/transform-diagnostics.json",
     "lint": "npm run lint:excel && node --check server-guarded-closures.js && node --check guarded-server-runtime.js && node --check guarded-server-routes.js && node --check scheduled-transitions-core.js && node --check scheduled-transitions-engine.js && node --check scheduled-transitions.js && node --check scheduled-status-plugin.js && node --check shift-core-plugin.js && node --check day-closures-model.js && node --check day-closures-core.js && node --check day-closure-app-core-transform.js && node --check day-closure-app-ui-transform.js && node --check day-closure-report-transform.js && node --check day-closure-pdf-transform.js && node --check day-closure-plugin.js && node --check recovery-core.js && node --check recovery-policy.js && node --check recovery-store.js && node --check recovery-direct-save.js && node --check recovery-routes.js && node --check recovery-status-routes.js && node --check recovery-ui-plugin.js && node --check platform/config.js && node --check platform/errors.js && node --check platform/logger.js && node --check platform/permissions.js && node --check platform/validation.js && node --check platform/diagnostics.js && node --check platform/backup-verification.js && node --check platform/routes.js && node --check platform/transform-safety.js && node --check platform-hardening-plugin.js && node --check src/storageAdapter.js && node --check src/recoveryClient.js && node --check src/diagnosticsClient.js",
     "check": "npm run lint && npm test && vite build",
     "clean": "rm -rf dist node_modules/.vite"

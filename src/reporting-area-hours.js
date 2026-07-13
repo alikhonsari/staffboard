@@ -1,0 +1,224 @@
+import * as XLSX from 'xlsx'
+import { buildAreaHoursAnalysis } from './area-hours-core.js'
+
+const COLORS = { navy: '0F172A', blue: '2563EB', green: '059669', orange: 'D97706', purple: '7C3AED', red: 'DC2626', line: 'CBD5E1', light: 'F8FAFC', white: 'FFFFFF', text: '172033' }
+const pretty = (value) => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase())
+const safeName = (value) => String(value || 'Sheet').replace(/[\\/?*:[\]]/g, ' ').slice(0, 31)
+
+function border(color = COLORS.line) {
+  return { top: { style: 'thin', color: { rgb: color } }, bottom: { style: 'thin', color: { rgb: color } }, left: { style: 'thin', color: { rgb: color } }, right: { style: 'thin', color: { rgb: color } } }
+}
+
+function widths(rows) {
+  const count = Math.max(1, ...rows.map((row) => row.length))
+  return Array.from({ length: count }, (_, column) => ({ wch: Math.min(48, Math.max(column === 0 ? 16 : 10, ...rows.map((row) => String(row[column] ?? '').length + 2))) }))
+}
+
+function moveBefore(wb, name, beforeName = 'Data Quality') {
+  const current = wb.SheetNames.indexOf(name)
+  if (current < 0) return
+  wb.SheetNames.splice(current, 1)
+  const target = wb.SheetNames.indexOf(beforeName)
+  wb.SheetNames.splice(target >= 0 ? target : wb.SheetNames.length, 0, name)
+}
+
+function appendTable(wb, name, rows, options = {}) {
+  const safeRows = rows.length ? rows : [{ note: 'No data available' }]
+  const keys = options.keys || Object.keys(safeRows[0])
+  const maxColumn = Math.max(1, keys.length) - 1
+  const data = [[options.title || name], [options.subtitle || 'StaffBoard builder area-hours report'], []]
+  const merges = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: maxColumn } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: maxColumn } },
+  ]
+  if (options.meta?.length) {
+    data.push(['REPORT INFORMATION'])
+    merges.push({ s: { r: data.length - 1, c: 0 }, e: { r: data.length - 1, c: maxColumn } })
+    options.meta.forEach(([label, value]) => data.push([label, value]))
+    data.push([])
+  }
+  const sectionRow = data.length
+  data.push([options.section || name.toUpperCase()])
+  merges.push({ s: { r: sectionRow, c: 0 }, e: { r: sectionRow, c: maxColumn } })
+  const headerRow = data.length
+  data.push(keys.map(pretty))
+  const dataStart = data.length
+  safeRows.forEach((row) => data.push(keys.map((key) => row[key] ?? '')))
+  const ws = XLSX.utils.aoa_to_sheet(data)
+  ws['!merges'] = merges
+  ws['!cols'] = widths(data)
+  ws['!freeze'] = { xSplit: options.freezeColumns || 0, ySplit: headerRow + 1 }
+  ws['!autofilter'] = { ref: `${XLSX.utils.encode_cell({ r: headerRow, c: 0 })}:${XLSX.utils.encode_cell({ r: data.length - 1, c: maxColumn })}` }
+  ws['!pageSetup'] = { orientation: 'landscape', fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+  ws['!margins'] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 }
+  ws['!header'] = [{ left: '&BStaffBoard', center: options.title || name, right: '&D &T' }]
+  ws['!footer'] = [{ left: 'Internal operations use', center: 'Page &P of &N', right: 'Area hours are contribution records, not productivity ratings' }]
+  const accent = options.accent || COLORS.blue
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1')
+  for (let row = range.s.r; row <= range.e.r; row += 1) {
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const cell = ws[XLSX.utils.encode_cell({ r: row, c: column })]
+      if (!cell) continue
+      const base = { alignment: { vertical: 'top', wrapText: true }, border: border('E2E8F0') }
+      if (row === 0) cell.s = { ...base, font: { bold: true, color: { rgb: COLORS.white }, sz: 17 }, fill: { fgColor: { rgb: COLORS.navy } }, border: border(COLORS.navy) }
+      else if (row === sectionRow) cell.s = { ...base, font: { bold: true, color: { rgb: COLORS.white } }, fill: { fgColor: { rgb: accent } }, border: border(accent) }
+      else if (row === headerRow) cell.s = { ...base, font: { bold: true, color: { rgb: COLORS.white } }, fill: { fgColor: { rgb: accent } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } }
+      else cell.s = { ...base, font: { color: { rgb: COLORS.text } }, fill: { fgColor: { rgb: row % 2 ? COLORS.white : COLORS.light } } }
+    }
+  }
+  ;(options.formats || []).forEach(({ key, format }) => {
+    const column = keys.indexOf(key)
+    if (column < 0) return
+    for (let row = dataStart; row < data.length; row += 1) {
+      const cell = ws[XLSX.utils.encode_cell({ r: row, c: column })]
+      if (cell) cell.z = format
+    }
+  })
+  const sheetName = safeName(name)
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  moveBefore(wb, sheetName, options.before || 'Data Quality')
+  return ws
+}
+
+function meta(state, admin, day) {
+  return [
+    ['Board ID', state.currentBoardId || ''],
+    ['Board', state.boardTitle || ''],
+    ['Shift', state.boardShift || ''],
+    ['Week Start', state.weekStartDate || ''],
+    ...(day ? [['Operational Day', day]] : []),
+    ['Generated By', admin || state.adminName || state.boardLead || 'Not set'],
+    ['State Revision', Number(state.stateRevision || 0)],
+    ['Interpretation', 'Recorded hours describe area contribution and coverage; they do not prove productivity.'],
+  ]
+}
+
+function sessionRows(analysis) {
+  return analysis.sessions.map((row) => ({
+    builder_id: row.builder_id,
+    builder: row.builder,
+    badge_type: row.badge_type,
+    board_id: row.board_id,
+    shift: row.shift,
+    week_start_date: row.week_start_date,
+    operational_day: row.operational_day,
+    calendar_date: row.calendar_date,
+    operating_status: row.operating_status,
+    area: row.area,
+    area_type: row.area_type,
+    sub_area: row.sub_area,
+    speed_lite_team: row.speed_lite_team,
+    role: row.role,
+    status: row.status,
+    line_lead: row.line_lead,
+    production_labor: row.production_labor,
+    start_time: row.start_time,
+    end_time: row.end_time,
+    calculated_hours: row.calculated_hours,
+    calculation_source: row.calculation_source,
+    accuracy: row.accuracy,
+    snapshot_context: row.snapshot_context,
+    record_id: row.record_id,
+    admin: row.admin,
+    updated_at: row.updated_at,
+    notes: row.notes,
+    valid: row.valid,
+    issue: row.issue,
+  }))
+}
+
+function summaryRows(analysis) {
+  return analysis.builderSummary.map((row) => ({
+    builder_id: row.builder_id,
+    builder: row.builder,
+    badge_type: row.badge_type,
+    shift: row.shift,
+    total_assigned_hours: row.total_assigned_hours,
+    total_active_hours: row.total_active_hours,
+    production_hours: row.total_production_hours,
+    support_hours: row.total_support_hours,
+    labor_share_hours: row.total_labor_share_hours,
+    unassigned_hours: row.total_unassigned_hours,
+    areas_worked: row.number_of_areas_worked,
+    primary_area: row.primary_area,
+    primary_area_hours: row.primary_area_hours,
+    primary_area_percentage: row.primary_area_percentage,
+    second_area: row.second_area,
+    second_area_hours: row.second_area_hours,
+    third_area: row.third_area,
+    third_area_hours: row.third_area_hours,
+    worked_days: row.operational_days_worked,
+    average_active_hours_per_day: row.average_active_hours_per_day,
+    area_movements: row.area_movements,
+    first_recorded_area: row.first_recorded_area,
+    most_recent_area: row.most_recent_area,
+    exact_hours: row.exact_hours,
+    estimated_hours: row.estimated_hours,
+    expected_paid_hours: row.expected_paid_hours,
+    area_hours_difference: row.area_hours_difference,
+    warning_count: row.data_quality_warning_count,
+  }))
+}
+
+function leaderboardRows(analysis, limit = Infinity) {
+  return analysis.leaderboards.filter((row) => row.rank <= limit).map((row) => ({
+    rank: row.rank,
+    area: row.area,
+    area_type: row.area_type,
+    builder: row.builder,
+    badge_type: row.badge_type,
+    shift: row.shift,
+    total_hours: row.total_hours,
+    percentage_of_area_hours: row.area_hours_percentage,
+    days_worked: row.days_worked,
+    average_hours_per_day: row.average_hours_per_day,
+    sessions: row.session_count,
+    first_worked_date: row.first_worked_date,
+    most_recent_worked_date: row.most_recent_worked_date,
+    exact_hours: row.exact_hours,
+    estimated_hours: row.estimated_hours,
+    primary_area: row.primary_area,
+    line_lead: row.line_lead,
+    trainer: row.trainer,
+    safety: row.safety,
+    relevant_skills: row.relevant_skills,
+    warning_count: row.data_quality_warning_count,
+  }))
+}
+
+const hourFormats = [
+  'calculated_hours', 'total_hours', 'total_assigned_hours', 'total_active_hours', 'production_hours', 'support_hours', 'labor_share_hours', 'unassigned_hours', 'primary_area_hours', 'second_area_hours', 'third_area_hours', 'average_active_hours_per_day', 'exact_hours', 'estimated_hours', 'expected_paid_hours', 'area_hours_difference', 'average_hours_per_day', 'top_builder_hours', 'line_lead_hours', 'trainer_hours', 'safety_member_hours',
+].map((key) => ({ key, format: '0.00' }))
+const percentFormats = ['primary_area_percentage', 'percentage_of_area_hours', 'top_builder_percentage', 'exact_hour_percentage', 'estimated_hour_percentage', 'utilization_percentage', 'percent_of_builder_week'].map((key) => ({ key, format: '0.0%' }))
+
+export function enhanceDailyAreaHoursWorkbook(wb, { state, dayState, selectedDay, builders, adminName }) {
+  const weekData = { [selectedDay]: dayState }
+  const analysisState = { ...state, builderPool: builders || state.builderPool || [] }
+  const analysis = buildAreaHoursAnalysis({ state: analysisState, weekData, weekStartDate: state.weekStartDate, days: [selectedDay], includeEstimated: true, includeUnassigned: true })
+  const reportMeta = meta(state, adminName, selectedDay)
+  appendTable(wb, 'Builder Area History', sessionRows(analysis), { title: `${selectedDay} Builder Area History`, meta: reportMeta, accent: COLORS.blue, freezeColumns: 2, formats: hourFormats })
+  appendTable(wb, 'Builder Area Summary', summaryRows(analysis), { title: `${selectedDay} Builder Area Summary`, meta: reportMeta, accent: COLORS.green, freezeColumns: 2, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Leaderboard', leaderboardRows(analysis), { title: `${selectedDay} Top Contributors by Recorded Area Hours`, subtitle: 'Neutral contribution ranking with worked-day and exact/estimated context', meta: reportMeta, accent: COLORS.purple, freezeColumns: 3, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Hours Matrix', analysis.matrix.rows, { title: `${selectedDay} Builder-by-Area Hours Matrix`, meta: reportMeta, accent: COLORS.blue, freezeColumns: 2, keys: ['builder', 'badge_type', ...analysis.matrix.areas, 'total_hours', 'production_hours', 'support_labor_share_hours'], formats: [...analysis.matrix.areas, 'total_hours', 'production_hours', 'support_labor_share_hours'].map((key) => ({ key, format: '0.00' })) })
+  appendTable(wb, 'Area Hours Summary', analysis.areaSummaries, { title: `${selectedDay} Area Hours Summary`, meta: reportMeta, accent: COLORS.orange, freezeColumns: 2, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Hours Quality', analysis.warnings, { title: `${selectedDay} Area Hours Data Quality`, subtitle: 'Invalid overlaps and duplicate time are excluded from totals', meta: reportMeta, accent: COLORS.red, freezeColumns: 2 })
+  return analysis
+}
+
+export function enhanceWeeklyAreaHoursWorkbook(wb, { state, weekDays, getDayData, builderPool, adminName }) {
+  const days = weekDays || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+  const weekData = Object.fromEntries(days.map((day) => [day, getDayData(day)]))
+  const analysisState = { ...state, builderPool: builderPool || state.builderPool || [] }
+  const analysis = buildAreaHoursAnalysis({ state: analysisState, weekData, weekStartDate: state.weekStartDate, days, includeEstimated: true, includeUnassigned: true })
+  const reportMeta = meta(state, adminName)
+  appendTable(wb, 'Builder Area History', sessionRows(analysis), { title: 'Weekly Builder Area History', meta: reportMeta, accent: COLORS.blue, freezeColumns: 2, formats: hourFormats })
+  appendTable(wb, 'Builder Weekly Areas', analysis.weeklyBuilderAreaRows, { title: 'Builder Weekly Area Summary', subtitle: 'Daily area hours, builder-week share, and rank within area', meta: reportMeta, accent: COLORS.green, freezeColumns: 3, formats: [...days.map((key) => ({ key, format: '0.00' })), ...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Builder Primary Areas', summaryRows(analysis), { title: 'Builder Primary, Secondary, and Tertiary Areas', meta: reportMeta, accent: COLORS.green, freezeColumns: 2, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Top Builders', leaderboardRows(analysis), { title: 'Top Contributors by Recorded Area Hours', subtitle: 'Dense ranking; recorded hours are not a productivity rating', meta: reportMeta, accent: COLORS.purple, freezeColumns: 3, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Leaderboard Summary', leaderboardRows(analysis, 5), { title: 'Top 5 Contributors per Area', meta: reportMeta, accent: COLORS.purple, freezeColumns: 3, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Weekly Area Matrix', analysis.matrix.rows, { title: 'Weekly Builder-by-Area Hours Matrix', meta: reportMeta, accent: COLORS.blue, freezeColumns: 2, keys: ['builder', 'badge_type', ...analysis.matrix.areas, 'total_hours', 'production_hours', 'support_labor_share_hours'], formats: [...analysis.matrix.areas, 'total_hours', 'production_hours', 'support_labor_share_hours'].map((key) => ({ key, format: '0.00' })) })
+  appendTable(wb, 'Area Daily Trend', analysis.areaDailyTrend, { title: 'Area Daily Hours and Coverage Trend', meta: reportMeta, accent: COLORS.orange, freezeColumns: 2, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Hours Summary', analysis.areaSummaries, { title: 'Weekly Area Hours Summary', meta: reportMeta, accent: COLORS.orange, freezeColumns: 2, formats: [...hourFormats, ...percentFormats] })
+  appendTable(wb, 'Area Hours Quality', analysis.warnings, { title: 'Weekly Area Hours Data Quality', subtitle: 'Resolve overlaps, duplicates, missing times, and reconciliation differences before distribution', meta: reportMeta, accent: COLORS.red, freezeColumns: 2 })
+  return analysis
+}
