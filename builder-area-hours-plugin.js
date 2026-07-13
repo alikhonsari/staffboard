@@ -9,11 +9,12 @@ export function builderAreaHoursPlugin() {
         const importMarker = "import { exportEndOfShiftExcel, exportWeeklyExcel } from './reporting'"
         next = next.replace(importMarker, `${importMarker}\nimport BuilderAreaHoursPanel from './BuilderAreaHoursPanel'`)
       }
-      if (!next.includes('data-builder-area-hours')) {
+      if (!next.includes('<BuilderAreaHoursPanel state={state} />')) {
         const marker = `          <div className="summary-card-block card">\n            <div className="table-title-row">\n              <div>\n                <div className="table-kicker">Saved Week History</div>`
         const panel = `          <BuilderAreaHoursPanel state={state} />\n\n`
         next = next.replace(marker, panel + marker)
       }
+      validateBuilderAreaHoursOutput(next)
       return next === code ? null : { code: next, map: null }
     },
   }
@@ -26,5 +27,7 @@ export function validateBuilderAreaHoursOutput(code) {
   ]
   const missing = required.filter((marker) => !code.includes(marker))
   if (missing.length) throw new Error(`Builder Area Hours integration missing: ${missing.join(', ')}`)
+  const duplicatePanelCount = code.split('<BuilderAreaHoursPanel state={state} />').length - 1
+  if (duplicatePanelCount > 1) throw new Error(`Builder Area Hours panel injected ${duplicatePanelCount} times.`)
   return true
 }
