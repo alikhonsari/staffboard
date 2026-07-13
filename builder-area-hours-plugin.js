@@ -12,10 +12,11 @@ export function builderAreaHoursPlugin() {
       if (!next.includes('<BuilderAreaHoursPanel state={state} />')) {
         const titleMarker = '<div className="table-kicker">Saved Week History</div>'
         const titleIndex = next.indexOf(titleMarker)
-        const cardMarker = '          <div className="summary-card-block card">'
+        const cardMarker = '<div className="summary-card-block card">'
         const cardIndex = titleIndex >= 0 ? next.lastIndexOf(cardMarker, titleIndex) : -1
-        if (cardIndex >= 0) {
-          next = `${next.slice(0, cardIndex)}          <BuilderAreaHoursPanel state={state} />\n\n${next.slice(cardIndex)}`
+        const lineStart = cardIndex >= 0 ? next.lastIndexOf('\n', cardIndex) + 1 : -1
+        if (lineStart >= 0) {
+          next = `${next.slice(0, lineStart)}          <BuilderAreaHoursPanel state={state} />\n\n${next.slice(lineStart)}`
         }
       }
       validateBuilderAreaHoursOutput(next)
