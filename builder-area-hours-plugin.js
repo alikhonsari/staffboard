@@ -10,9 +10,13 @@ export function builderAreaHoursPlugin() {
         next = next.replace(importMarker, `${importMarker}\nimport BuilderAreaHoursPanel from './BuilderAreaHoursPanel'`)
       }
       if (!next.includes('<BuilderAreaHoursPanel state={state} />')) {
-        const marker = `          <div className="summary-card-block card">\n            <div className="table-title-row">\n              <div>\n                <div className="table-kicker">Saved Week History</div>`
-        const panel = `          <BuilderAreaHoursPanel state={state} />\n\n`
-        next = next.replace(marker, panel + marker)
+        const titleMarker = '<div className="table-kicker">Saved Week History</div>'
+        const titleIndex = next.indexOf(titleMarker)
+        const cardMarker = '          <div className="summary-card-block card">'
+        const cardIndex = titleIndex >= 0 ? next.lastIndexOf(cardMarker, titleIndex) : -1
+        if (cardIndex >= 0) {
+          next = `${next.slice(0, cardIndex)}          <BuilderAreaHoursPanel state={state} />\n\n${next.slice(cardIndex)}`
+        }
       }
       validateBuilderAreaHoursOutput(next)
       return next === code ? null : { code: next, map: null }
