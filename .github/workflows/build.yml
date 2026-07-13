@@ -118,6 +118,7 @@ jobs:
           path: |
             speed-lite-transform-status.json
             daily-pdf-v3-transform-status.json
+            dist/transform-diagnostics.json
             lint-output.log
             build-output.log
           if-no-files-found: ignore
