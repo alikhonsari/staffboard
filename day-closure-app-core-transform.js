@@ -26,10 +26,12 @@ const hooks = `
   const [closureBusy, setClosureBusy] = useState(false)
   const [closureMessage, setClosureMessage] = useState('')
   const [closureError, setClosureError] = useState('')
-  const closureRevisionRef = useRef(null)`
+  const closureRevisionRef = useRef(null)
+  const closureActionInFlightRef = useRef(false)`
 
 const closureLogic = `  const openClosureDialog = (mode) => {
-    setClosureDialogMode(mode); setClosureError(''); setClosureConfirmed(false)
+    if (!canManageClosures) { setClosureMessage('Only an Admin or Manager can change operational-day status.'); return }
+    setClosureDialogMode(mode); setClosureError(''); setClosureMessage(''); setClosureConfirmed(false)
     if (mode === 'reopen' && activeClosure) {
       setClosureScope(activeClosure.scope); setClosureReason(activeClosure.reason || 'Holiday')
       setClosureCustomReason(activeClosure.customReason || ''); setClosureNote(activeClosure.note || '')
@@ -40,21 +42,39 @@ const closureLogic = `  const openClosureDialog = (mode) => {
   }
 
   const runClosureAction = async () => {
-    if (closureBusy || !closureConfirmed) return
+    if (closureActionInFlightRef.current || closureBusy || !closureConfirmed) return
+    if (!canManageClosures) { setClosureError('Only an Admin or Manager can change operational-day status.'); return }
+    if (closureDialogMode === 'close' && !String(closureReason || '').trim()) { setClosureError('Choose a closure reason.'); return }
     if (closureDialogMode === 'close' && closureReason === 'Other' && !closureCustomReason.trim()) { setClosureError('Enter a custom closure reason.'); return }
-    setClosureBusy(true); setClosureError('')
+    closureActionInFlightRef.current = true
+    setClosureBusy(true); setClosureError(''); setClosureMessage('')
     try {
       const payload = await requestDayClosure(closureDialogMode, {
         boardId: state.currentBoardId || 'speed_day', weekStartDate: state.weekStartDate,
         day: state.selectedDay, scope: closureDialogMode === 'reopen' ? activeClosure?.scope : closureScope,
         reason: closureReason, customReason: closureCustomReason, note: closureNote, effectiveDate: selectedOperationalDate,
       }, defaultState)
-      if (payload?.normalizedState || payload?.state) setState(normalizeState(payload.normalizedState || payload.state))
-      closureRevisionRef.current = Number(payload.closureRevision || 0)
+      const persistedState = payload?.normalizedState || payload?.state
+      if (!persistedState) throw new Error('The server did not return the persisted closure state.')
+      setState((prev) => normalizeState({ ...prev, ...persistedState }))
+      closureRevisionRef.current = Number(payload.closureRevision || persistedState.closureRevision || 0)
       setClosureMessage(payload.message || (closureDialogMode === 'reopen' ? 'Operational day reopened.' : 'Operational day marked closed.'))
       setClosureDialogOpen(false); setClosureConfirmed(false); setSyncStatus('Synced')
-    } catch (error) { setClosureError(error?.message || 'Day closure update failed.') }
-    finally { setClosureBusy(false) }
+    } catch (error) {
+      if (error?.latestState) {
+        setState((prev) => normalizeState({ ...prev, ...error.latestState }))
+        closureRevisionRef.current = Number(error.latestState.closureRevision || closureRevisionRef.current || 0)
+        setSyncStatus('Synced')
+      }
+      const requestSuffix = error?.requestId ? ' Request ID: ' + error.requestId : ''
+      const message = error?.conflict
+        ? 'The board changed in another session. The latest board has been loaded; review the closure details and confirm again.'
+        : (error?.message || 'Day closure update failed.')
+      setClosureError(message + requestSuffix)
+    } finally {
+      closureActionInFlightRef.current = false
+      setClosureBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -89,7 +109,8 @@ const closureLogic = `  const openClosureDialog = (mode) => {
 
 export function injectAppCore(code) {
   let next = code
-  if (!next.includes('loadDayClosureStatus')) next = "import { loadDayClosureStatus, requestDayClosure } from './storageAdapter'\n" + next
+  const closureImport = "import { loadDayClosureStatus, requestDayClosure } from './storageAdapter'"
+  if (!next.includes(closureImport)) next = closureImport + '\n' + next
   if (!next.includes('function staffboardClosureForState')) next = next.replace(WEEKDAY_MARKER, WEEKDAY_MARKER + helpers)
   const hookMarker = "  const [syncStatus, setSyncStatus] = useState('Loading...')"
   if (!next.includes('const [closureDialogOpen')) next = next.replace(hookMarker, hookMarker + hooks)
@@ -97,6 +118,7 @@ export function injectAppCore(code) {
   if (!next.includes('const activeClosure = staffboardClosureForState')) next = next.replace(dayMarker, dayMarker + `
   const activeClosure = staffboardClosureForState(state, state.currentBoardId, state.weekStartDate, state.selectedDay)
   const isDayClosed = !!activeClosure
+  const canManageClosures = ['admin', 'manager', 'system'].includes(String(user?.role || 'admin').toLowerCase())
   const closureReasonLabel = staffboardClosureReason(activeClosure)
   const closureScopeLabel = STAFFBOARD_CLOSURE_SCOPE_LABELS[activeClosure?.scope] || ''
   const selectedOperationalDate = addDays(state.weekStartDate, Math.max(0, WEEKDAYS.indexOf(state.selectedDay)))

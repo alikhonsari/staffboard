@@ -7,10 +7,18 @@ const APP_SPEC = {
     'data-recovery-panel-route',
     'SITE CLOSED',
     'loadScheduledTransitionStatus',
+    'data-day-closure-control',
+    'data-day-closure-banner',
+    'data-day-closure-modal',
+    'data-day-closure-submit',
   ],
   unique: [
     'data-recovery-panel-route',
     'data-recovery-sync-bridge',
+    'data-day-closure-control',
+    'data-day-closure-banner',
+    'data-day-closure-modal',
+    'data-day-closure-submit',
   ],
 }
 

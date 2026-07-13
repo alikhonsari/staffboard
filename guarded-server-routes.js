@@ -13,6 +13,7 @@ import {
 } from './guarded-server-runtime.js'
 import { completeDirectStateSave, prepareDirectStateSave } from './recovery-direct-save.js'
 import { assertValidAction } from './platform/validation.js'
+import { evaluateMutationRevision } from './platform/mutation-revision.js'
 import { recordError, recordReconciliation } from './platform/diagnostics.js'
 
 const clean = (value) => String(value || '').trim()
@@ -84,12 +85,17 @@ async function scheduleStatus(req, res) {
 
 async function closureAction(req, res) {
   try {
-    if (!config.spacesConfigured) return res.status(500).json({ error: 'Spaces is not configured' })
+    if (!config.spacesConfigured) return res.status(500).json({ error: 'Spaces is not configured', requestId: req.requestId || null })
     const body = req.body || {}
     assertValidAction('closure', body)
     const actor = req.user?.username || 'System'
     const response = await enqueue(async () => {
       const reconciled = await reconcilePersistedState('pre-closure-reconciliation')
+      const revision = evaluateMutationRevision(body, reconciled.payload)
+      if (!revision.ok) {
+        conflict(res, revision.message)
+        return null
+      }
       const state = reconciled.payload.state || {}
       const result = body.action === 'close'
         ? closeOperationalDay(state, body, { actor, now: new Date() })
@@ -99,13 +105,25 @@ async function closureAction(req, res) {
       const payload = result.changed ? await persistState(result.state, actor, `closure-${body.action}`, result.events || []) : reconciled.payload
       return { payload, result }
     })
+    if (!response || res.headersSent) return
     const state = response.payload.state || {}
     const latest = state.closureNotifications?.[0] || null
-    return res.json({ ...response.payload, stateRevision: Number(response.payload.stateRevision || state.stateRevision || 0), changed: !!response.result.changed, closureRevision: Number(state.closureRevision || 0), scheduleRevision: Number(state.scheduleRevision || 0), recoveryRevision: Number(state.recoveryRevision || 0), closure: response.result.closure || null, canceledTransitionCount: Number(response.result.canceledTransitionCount || 0), message: latest?.message || (body.action === 'reopen' ? 'Operational day reopened.' : 'Operational day marked closed.'), timeZone: config.timeZone })
+    return res.json({ ...response.payload, stateRevision: Number(response.payload.stateRevision || state.stateRevision || 0), changed: !!response.result.changed, closureRevision: Number(state.closureRevision || 0), scheduleRevision: Number(state.scheduleRevision || 0), recoveryRevision: Number(state.recoveryRevision || 0), closure: response.result.closure || null, canceledTransitionCount: Number(response.result.canceledTransitionCount || 0), message: latest?.message || (body.action === 'reopen' ? 'Operational day reopened.' : 'Operational day marked closed.'), requestId: req.requestId || null, timeZone: config.timeZone })
   } catch (error) {
     recordError(error)
     console.error('Day closure action failed:', error)
-    return res.status(error.status || 400).json({ error: error.message || 'Day closure action failed.', details: error.details || {}, requestId: req.requestId || null })
+    return res.status(error.status || 400).json({
+      error: error.message || 'Day closure action failed.',
+      errorDetail: {
+        code: error.code || 'DAY_CLOSURE_FAILED',
+        message: error.message || 'Day closure action failed.',
+        retryable: false,
+        details: error.details || {},
+        requestId: req.requestId || null,
+      },
+      details: error.details || {},
+      requestId: req.requestId || null,
+    })
   }
 }
 

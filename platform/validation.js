@@ -3,6 +3,8 @@ import { errors } from './errors.js'
 const BOARD_IDS = new Set(['speed_day', 'speed_night', 'fa_day', 'fa_night', 'bodega_day', 'bodega_night'])
 const WEEKDAYS = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'])
 const CLOSURE_SCOPES = new Set(['entire_day', 'day_shift', 'night_shift'])
+const CLOSURE_ACTIONS = new Set(['close', 'reopen'])
+const CLOSURE_REASONS = new Set(['Holiday', 'Building Closure', 'Severe Weather', 'Maintenance', 'Emergency', 'Planned Shutdown', 'Other'])
 const SCHEDULE_ACTIONS = new Set(['schedule', 'cancel', 'immediate', 'override'])
 const RECOVERY_ACTIONS = new Set(['create_backup', 'undo_last', 'restore_version', 'restore_backup'])
 
@@ -39,7 +41,13 @@ export function validateActionPayload(kind, body = {}) {
     if (body.action && !SCHEDULE_ACTIONS.has(body.action)) issues.push({ path: 'action', message: 'Unknown schedule action.' })
   } else if (kind === 'closure') {
     requireField('action'); requireField('boardId'); requireField('weekStartDate'); requireField('day'); requireField('scope')
+    if (body.action && !CLOSURE_ACTIONS.has(body.action)) issues.push({ path: 'action', message: 'Unknown closure action.' })
     if (body.scope && !CLOSURE_SCOPES.has(body.scope)) issues.push({ path: 'scope', message: 'Unknown closure scope.' })
+    if (body.action === 'close') {
+      requireField('reason')
+      if (body.reason && !CLOSURE_REASONS.has(body.reason)) issues.push({ path: 'reason', message: 'Unknown closure reason.' })
+      if (body.reason === 'Other' && !clean(body.customReason)) issues.push({ path: 'customReason', message: 'customReason is required when Other is selected.' })
+    }
   } else if (kind === 'recovery') {
     requireField('action')
     if (body.action && !RECOVERY_ACTIONS.has(body.action)) issues.push({ path: 'action', message: 'Unknown recovery action.' })
@@ -67,4 +75,4 @@ export function validateBackupEnvelope(envelope) {
   return { ok: issues.length === 0, issues }
 }
 
-export const schemaConstants = { BOARD_IDS, WEEKDAYS, CLOSURE_SCOPES, SCHEDULE_ACTIONS, RECOVERY_ACTIONS }
+export const schemaConstants = { BOARD_IDS, WEEKDAYS, CLOSURE_SCOPES, CLOSURE_ACTIONS, CLOSURE_REASONS, SCHEDULE_ACTIONS, RECOVERY_ACTIONS }
