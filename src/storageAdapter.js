@@ -1,3 +1,7 @@
+import {
+  buildDayClosurePayload, createDayClosureError, validateDayClosurePayload, validateDayClosureSuccess,
+} from './day-closure-client-core.js'
+
 const STORAGE_KEY = 'staffing_board_redo_complete_v2_weekly'
 const AUTH_TOKEN_KEY = 'staffboard_shared_auth_token'
 const LOGIN_TOKEN_KEY = 'staffboard2_token'
@@ -63,18 +67,20 @@ async function requestWithTimeout(url, options = {}) {
   }
 }
 
-async function responseMessage(res, fallback) {
+async function responsePayload(res) {
   try {
     const type = res.headers.get('content-type') || ''
-    if (type.includes('application/json')) {
-      const data = await res.json()
-      return data.errorDetail?.message || data.error || data.message || fallback
-    }
+    if (type.includes('application/json')) return await res.json()
     const text = await res.text()
-    return text || fallback
+    return text ? { error: text } : {}
   } catch {
-    return fallback
+    return {}
   }
+}
+
+async function responseMessage(res, fallback) {
+  const data = await responsePayload(res)
+  return data.errorDetail?.message || data.error || data.message || fallback
 }
 
 function rememberRemotePayload(payload, defaultState = {}) {
@@ -224,18 +230,42 @@ export async function loadScheduledTransitionStatus() {
 }
 
 export async function requestDayClosure(action, details = {}, defaultState = {}) {
+  const body = buildDayClosurePayload(action, details, {
+    updatedAt: remoteUpdatedAt || '',
+    stateRevision: Number(remoteStateRevision || 0),
+  })
+  const validation = validateDayClosurePayload(body)
+  if (!validation.ok) {
+    const error = new Error(validation.issues.join(' '))
+    error.name = 'DayClosureValidationError'
+    error.code = 'VALIDATION_FAILED'
+    throw error
+  }
+
   const res = await requestWithTimeout('/api/day-closures', {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ action, ...details }),
+    body: JSON.stringify(body),
   })
+
+  const payload = await responsePayload(res)
   if (res.status === 401) {
     clearSharedAuthToken()
-    throw new Error('Invalid admin session. Please log in again.')
+    throw createDayClosureError(res.status, payload, 'Invalid admin session. Please log in again.')
   }
-  if (!res.ok) throw new Error(await responseMessage(res, 'Failed to update day closure'))
-  const payload = await res.json()
-  if (payload.state) payload.normalizedState = rememberRemotePayload(payload, defaultState)
+
+  if (res.status === 409) {
+    const latest = await fetchLatestRemote(defaultState).catch(() => null)
+    const error = createDayClosureError(res.status, payload, 'The board changed in another session.')
+    error.latestState = latest?.state || null
+    error.latestPayload = latest?.payload || null
+    throw error
+  }
+
+  if (!res.ok) throw createDayClosureError(res.status, payload, 'Failed to update day closure')
+
+  const persistedState = validateDayClosureSuccess(payload)
+  payload.normalizedState = rememberRemotePayload({ ...payload, state: persistedState }, defaultState)
   return payload
 }
 
