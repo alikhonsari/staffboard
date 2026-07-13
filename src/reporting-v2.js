@@ -9,7 +9,7 @@ const C = { navy: '0F172A', blue: '2563EB', green: '059669', orange: 'D97706', p
 const n = (value) => Number.isFinite(Number(value)) ? Number(value) : 0
 const r = (value, digits = 2) => Math.round(n(value) * (10 ** digits)) / (10 ** digits)
 const pct = (done, goal) => n(goal) > 0 ? Math.max(0, n(done) / n(goal)) : (n(done) > 0 ? 1 : 0)
-const active = (status) => ACTIVE.has(status || 'Present')
+const active = (status) => status !== undefined && status !== null && ACTIVE.has(status || 'Present')
 const yn = (value) => value ? 'Yes' : 'No'
 const pretty = (value) => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
 const safeName = (value) => String(value || 'Sheet').replace(/[\\/?*:[\]]/g, ' ').slice(0, 31)
