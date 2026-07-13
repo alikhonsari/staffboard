@@ -142,13 +142,9 @@ export function installGuardedRoutes(app) {
   if (routesInstalled) return
   routesInstalled = true
   app.get('/api/scheduled-transitions/status', requireAdminAuth, scheduleStatus)
-  app.post('/api/scheduled-transitions', requireAdminAuth, closurePermissionGuard, closureAction)
+  app.post('/api/scheduled-transitions', requireAdminAuth, scheduleAction)
   app.get('/api/day-closures/status', requireAdminAuth, closureStatus)
   app.post('/api/day-closures', requireAdminAuth, closureAction)
-}
-
-function closurePermissionGuard(req, res, next) {
-  next()
 }
 
 export function invokeHandler(handler, req, res, next) {
