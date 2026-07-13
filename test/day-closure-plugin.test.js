@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { __test } from '../day-closure-plugin.js'
+import { validateClosureUiOutput } from '../day-closure-app-ui-transform.js'
 
-test('App transform installs closure controls, exclusions, schedule disabling, copy guards, and Slack status', () => {
-  const source = `
+function appFixture(boardIndent = '        ') {
+  return `
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-function StaffBoardApp(){
+function StaffBoardApp({ user }){
   const [syncStatus, setSyncStatus] = useState('Loading...')
   const dayState = state.weeklyData[state.selectedDay] || defaultDay()
   useEffect(() => {\n    const t = setInterval(() => setTick(Date.now()), 60000)
@@ -27,10 +28,15 @@ function StaffBoardApp(){
     const template = dayTemplates.find((t) => t.id === templateId)\n    if (!template) return alert('Pick a template.')
   const slackText = (type = 'daily') => {\n
   return (
-    <div className={state.darkMode ? "app dark" : "app"} style={{ gridTemplateColumns: x }}>
+    <div className={state.darkMode ? "app dark" : "app"} style={{ gridTemplateColumns: sidebarOpen ? "320px minmax(0,1fr)" : "minmax(0,1fr)" }}>
+      <button className="sidebar-toggle" onClick={() => setSidebarOpen((v) => !v)}>{sidebarOpen ? "Hide Menu" : "Show Menu"}</button>
+      {sidebarOpen && (
+      <aside className="sidebar">
+      </aside>
+      )}
+      <main className="main" ref={captureRef}>
         <div className="main-top-tabs"></div>
-
-        {mainTab === 'board' ? (
+${boardIndent}{mainTab === 'board' ? (
 {WEEKDAYS.map((day) => (
                 <button key={day} className={state.selectedDay === day ? 'day-tab active' : 'day-tab'} onClick={() => saveState((prev) => ({ ...prev, selectedDay: day }))}>
                   {day}
@@ -41,16 +47,38 @@ function StaffBoardApp(){
 <input disabled={scheduleBusy} />
 <button disabled={scheduleBusy || !pending}>x</button>
 `;
-  const out = __test.injectApp(source)
+}
+
+test('App transform installs a complete closure workflow rather than a partial button', () => {
+  const out = __test.injectApp(appFixture())
   assert.match(out, /requestDayClosure/)
-  assert.match(out, /SITE CLOSED/)
-  assert.match(out, /Mark Day Closed/)
+  assert.match(out, /data-day-closure-control="true"/)
+  assert.match(out, /data-day-closure-banner="true"/)
+  assert.match(out, /data-day-closure-modal="true"/)
+  assert.match(out, /data-day-closure-submit="true"/)
+  assert.match(out, /closureActionInFlightRef\.current/)
+  assert.match(out, /error\?\.latestState/)
+  assert.match(out, /Request ID:/)
+  assert.match(out, /setClosureDialogOpen\(false\)/)
+  assert.match(out, /Only an Admin or Manager/)
   assert.match(out, /if \(isDayClosed\) return \[\]/)
   assert.match(out, /target day is closed/)
   assert.match(out, /day-closed/)
   assert.match(out, /disabled=\{scheduleBusy \|\| isDayClosed\}/)
   assert.match(out, /disabled=\{scheduleBusy \|\| isDayClosed \|\| !pending\}/)
   assert.match(out, /Excluded — Site Closed/)
+  assert.equal(validateClosureUiOutput(out), true)
+})
+
+test('closure modal insertion survives transformed indentation', () => {
+  const out = __test.injectApp(appFixture('                    '))
+  assert.equal(out.split('data-day-closure-modal="true"').length - 1, 1)
+  assert.equal(out.split('data-day-closure-control="true"').length - 1, 1)
+})
+
+test('closure UI transform fails loudly when the board view insertion point is missing', () => {
+  const broken = appFixture().replace("{mainTab === 'board' ? (", "{mainTab === 'missing' ? (")
+  assert.throws(() => __test.injectApp(broken), /board view marker was not found/i)
 })
 
 test('reporting transform adds closure metadata and excludes closed days from weekly totals', () => {
@@ -99,7 +127,7 @@ const DailyPdfReportV3 = forwardRef(function DailyPdfReportV3(props, ref) {
   const speedBoard = true
   return (
     <div ref={ref} className="daily-pdf-v3-root" data-daily-pdf-v3="true" data-report-version={DAILY_PDF_V3_VERSION}>
-`;
+`
   const out = __test.injectDailyPdf(source)
   assert.match(out, /pdfClosureForState/)
   assert.match(out, /daily-pdf-v3-closure-page/)
