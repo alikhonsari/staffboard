@@ -11,6 +11,7 @@ import { installPlatformRoutes } from './platform/routes.js'
 import { logEvent } from './platform/logger.js'
 import { safeConfigSummary, validateEnvironment } from './platform/config.js'
 import { installStatusSaveHotfix, wrapFastStateGet, wrapFastStateSave } from './status-save-hotfix.js'
+import { installProtectedStatusGate } from './protected-status-gate.js'
 
 const originalUse = express.application.use
 const originalGet = express.application.get
@@ -28,6 +29,7 @@ function patchRoute(method, original) {
   express.application[method] = function patchedRoute(path, ...handlers) {
     if (String(path).startsWith('/api/')) {
       installPlatform(this)
+      installProtectedStatusGate(this)
       installStatusSaveHotfix(this)
       installGuardedRoutes(this)
       installRecoveryRoutes(this)
