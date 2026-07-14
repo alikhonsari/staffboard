@@ -23,10 +23,10 @@ function App() {
   return <>
     <div><label>Status</label><select value={selectedAssignment.status || 'Present'} onChange={(e) => updateBuilderAssignment(selectedBuilderId, { status: e.target.value })}></select></div>
     <div><label>Area</label><select value={selectedAssignment.area || ''} onChange={(e) => updateBuilderAssignment(selectedBuilderId, { area: e.target.value })}></select></div>
-    <div className="row two">
-      <div><label>Clock In</label><input type="time" value={selectedAssignment.clockInTime || ''} onChange={(e) => updateBuilderAssignment(selectedBuilderId, { clockInTime: e.target.value })} /></div>
-      <div><label>Clock Out</label><input type="time" value={selectedAssignment.leaveTime || ''} onChange={(e) => updateBuilderAssignment(selectedBuilderId, { leaveTime: e.target.value })} /></div>
-    </div>
+              <div className="row two">
+                <div><label>Clock In</label><input type="time" value={selectedAssignment.clockInTime || ''} onChange={(e) => updateBuilderAssignment(selectedBuilderId, { clockInTime: e.target.value })} /></div>
+                <div><label>Clock Out</label><input type="time" value={selectedAssignment.leaveTime || ''} onChange={(e) => updateBuilderAssignment(selectedBuilderId, { leaveTime: e.target.value })} /></div>
+              </div>
   </>
 }
 `
