@@ -3,13 +3,14 @@ import {
   config, enqueue, getObjectJson, putObjectJson, reconcilePersistedState,
   requireAdminAuth, runtime,
 } from './guarded-server-runtime.js'
-import { installGuardedRoutes, wrapStateGet, wrapStateSave } from './guarded-server-routes.js'
+import { installGuardedRoutes } from './guarded-server-routes.js'
 import { installRecoveryRoutes } from './recovery-routes.js'
 import { installRecoveryStatusRoute } from './recovery-status-routes.js'
 import { loadBackup, recoveryKeys } from './recovery-store.js'
 import { installPlatformRoutes } from './platform/routes.js'
 import { logEvent } from './platform/logger.js'
 import { safeConfigSummary, validateEnvironment } from './platform/config.js'
+import { installStatusSaveHotfix, wrapFastStateGet, wrapFastStateSave } from './status-save-hotfix.js'
 
 const originalUse = express.application.use
 const originalGet = express.application.get
@@ -27,13 +28,14 @@ function patchRoute(method, original) {
   express.application[method] = function patchedRoute(path, ...handlers) {
     if (String(path).startsWith('/api/')) {
       installPlatform(this)
+      installStatusSaveHotfix(this)
       installGuardedRoutes(this)
       installRecoveryRoutes(this)
       installRecoveryStatusRoute(this)
     }
     if (path === '/api/state' && handlers.length) {
       const index = handlers.length - 1
-      handlers[index] = method === 'get' ? wrapStateGet(handlers[index]) : wrapStateSave(handlers[index])
+      handlers[index] = method === 'get' ? wrapFastStateGet(handlers[index]) : wrapFastStateSave(handlers[index])
     }
     return original.call(this, path, ...handlers)
   }
