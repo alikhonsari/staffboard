@@ -1,7 +1,7 @@
 {
   "name": "staffboard-final-full-spaces",
   "private": true,
-  "version": "1.6.3",
+  "version": "1.6.4",
   "type": "module",
   "scripts": {
     "dev": "node server-guarded-closures.js",
@@ -11,6 +11,7 @@
     "test:scheduling": "node --test test/scheduled-transitions-core.test.js",
     "test:closures": "node --test test/day-closures-core.test.js test/day-closure-plugin.test.js test/day-closure-workflow.test.js",
     "test:status-save": "node --test test/status-save-hotfix.test.js",
+    "test:status-path": "node --test test/builder-status-route.test.js",
     "test:auth-polling": "node --test test/authenticated-polling-plugin.test.js",
     "test:recovery": "node --test test/recovery-core.test.js test/recovery-direct-save.test.js test/recovery-policy.test.js test/recovery-ui-plugin.test.js",
     "test:platform": "node --test test/platform-foundation.test.js test/platform-validation-backup.test.js test/platform-transform-diagnostics.test.js",
