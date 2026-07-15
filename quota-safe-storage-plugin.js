@@ -51,8 +51,12 @@ export function injectQuotaSafeStorage(code) {
     .replace('localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)', 'persistLocalStateSafely(savedState, lastRemoteStateJson)')
     .replace('saveQueued: Boolean(saveQueue),', 'saveQueued: Boolean(saveQueue),\n    localCacheError: lastLocalCacheError,')
 
-  if ((next.match(/localStorage\.setItem\(STORAGE_KEY/g) || []).length > 1) {
-    throw new Error('Quota-safe storage transform left an unsafe state-cache write.')
+  const unsafePatterns = [
+    'localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)',
+    'localStorage.setItem(STORAGE_KEY, JSON.stringify(state))',
+  ]
+  if (unsafePatterns.some((pattern) => next.includes(pattern))) {
+    throw new Error('Quota-safe storage transform left an unsafe direct state-cache write.')
   }
   return next
 }
