@@ -20,6 +20,22 @@ test('production gateway opens the public port before starting the guarded backe
   assert.ok(backendIndex > listenIndex, 'backend startup must happen after the public listener is installed')
 })
 
+test('guarded backend runs in a supervised child process', () => {
+  assert.match(gateway, /spawn\(process\.execPath, \[backendEntry\]/)
+  assert.doesNotMatch(gateway, /await import\('\.\/server-guarded-closures\.js'\)/)
+  assert.match(gateway, /backendChild\.on\('exit'/)
+  assert.match(gateway, /scheduleBackendRestart\(reason\)/)
+  assert.match(gateway, /STAFFBOARD_BACKEND_RESTART_DELAY_MS/)
+})
+
+test('backend failure does not terminate the public gateway', () => {
+  const exitHandler = gateway.slice(gateway.indexOf("backendChild.on('exit'"), gateway.indexOf('function buildFrontendIfNeeded'))
+  assert.doesNotMatch(exitHandler, /process\.exit/)
+  assert.match(exitHandler, /backendReady = false/)
+  assert.match(exitHandler, /backendChild = null/)
+  assert.match(gateway, /StaffBoard backend is restarting\. Retry shortly\./)
+})
+
 test('production gateway serves static dist assets and SPA fallback', () => {
   assert.match(gateway, /express\.static\(distDir/)
   assert.match(gateway, /res\.sendFile\(indexFile/)
@@ -43,4 +59,9 @@ test('missing dist starts a background build after the public server exists', ()
   assert.match(gateway, /spawn\('npm', \['run', 'build'\]/)
   assert.match(gateway, /Production dist\/index\.html is missing/)
   assert.match(gateway, /buildFrontendIfNeeded\(\)[\s\S]*startBackend\(\)/)
+})
+
+test('shutdown terminates the supervised backend before exiting gateway', () => {
+  assert.match(gateway, /backendChild\.kill\('SIGTERM'\)/)
+  assert.match(gateway, /if \(shuttingDown\) return/)
 })
