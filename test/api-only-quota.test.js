@@ -10,9 +10,10 @@ function transformStorage() {
   return injectQuotaSafeStorage(storageSource)
 }
 
-test('production server never imports or initializes Vite', () => {
+test('production server only loads Vite outside production and API-only mode', () => {
   assert.doesNotMatch(serverSource, /^import .*from ['"]vite['"]/m)
-  assert.match(serverSource, /if \(process\.env\.NODE_ENV !== 'production'\)/)
+  assert.match(serverSource, /process\.env\.NODE_ENV !== 'production'/)
+  assert.match(serverSource, /process\.env\.STAFFBOARD_API_ONLY !== '1'/)
   assert.match(serverSource, /await import\('vite'\)/)
   assert.match(serverSource, /mode: process\.env\.NODE_ENV === 'production' \? 'api-only'/)
 })
