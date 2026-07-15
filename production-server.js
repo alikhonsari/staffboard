@@ -13,6 +13,8 @@ const distDir = path.join(__dirname, 'dist')
 const indexFile = path.join(distDir, 'index.html')
 const backendEntry = path.join(__dirname, 'server-guarded-closures.js')
 const backendRestartDelayMs = Number(process.env.STAFFBOARD_BACKEND_RESTART_DELAY_MS || 1500)
+const readProxyTimeoutMs = Number(process.env.STAFFBOARD_READ_PROXY_TIMEOUT_MS || 25000)
+const mutationProxyTimeoutMs = Number(process.env.STAFFBOARD_MUTATION_PROXY_TIMEOUT_MS || 65000)
 
 let frontendReady = fs.existsSync(indexFile)
 let backendReady = false
@@ -33,6 +35,10 @@ function sendJson(res, status, payload) {
 }
 
 function proxyApi(req, res) {
+  const method = String(req.method || 'GET').toUpperCase()
+  const timeoutMs = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+    ? mutationProxyTimeoutMs
+    : readProxyTimeoutMs
   const proxy = http.request({
     hostname: '127.0.0.1',
     port: backendPort,
@@ -49,8 +55,8 @@ function proxyApi(req, res) {
     upstream.pipe(res)
   })
 
-  proxy.setTimeout(25_000, () => {
-    proxy.destroy(new Error('StaffBoard backend request timed out.'))
+  proxy.setTimeout(timeoutMs, () => {
+    proxy.destroy(new Error(`StaffBoard backend ${method} request timed out after ${timeoutMs}ms.`))
   })
   proxy.on('error', (error) => {
     backendReady = false
@@ -111,8 +117,8 @@ const publicServer = http.createServer((req, res) => {
   return frontend(req, res)
 })
 
-publicServer.requestTimeout = 30_000
-publicServer.headersTimeout = 35_000
+publicServer.requestTimeout = 70_000
+publicServer.headersTimeout = 75_000
 publicServer.keepAliveTimeout = 5_000
 
 publicServer.listen(publicPort, '0.0.0.0', () => {
