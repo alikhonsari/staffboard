@@ -4,6 +4,9 @@ import http from 'node:http'
 import net from 'node:net'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
 async function getFreePort() {
   return await new Promise((resolve, reject) => {
@@ -35,10 +38,13 @@ async function requestJson(port, path, timeoutMs = 1000) {
   })
 }
 
-async function waitForHealth(port, timeoutMs = 8000) {
+async function waitForHealth(port, child, stderr, timeoutMs = 8000) {
   const deadline = Date.now() + timeoutMs
   let lastError
   while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`production gateway exited with code ${child.exitCode}: ${stderr.join('')}`)
+    }
     try {
       return await requestJson(port, '/healthz')
     } catch (error) {
@@ -46,14 +52,15 @@ async function waitForHealth(port, timeoutMs = 8000) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
-  throw lastError || new Error('health endpoint did not become available')
+  throw new Error(`${lastError?.message || 'health endpoint did not become available'}; stderr: ${stderr.join('')}`)
 }
 
 test('DigitalOcean web process binds immediately even when backend cannot become ready', async (t) => {
   const publicPort = await getFreePort()
   const internalPort = await getFreePort()
+  const stderr = []
   const child = spawn(process.execPath, ['production-server.js'], {
-    cwd: new URL('..', import.meta.url),
+    cwd: repoRoot,
     env: {
       ...process.env,
       PORT: String(publicPort),
@@ -71,12 +78,13 @@ test('DigitalOcean web process binds immediately even when backend cannot become
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk).toString('utf8')))
 
   t.after(() => {
     if (!child.killed) child.kill('SIGTERM')
   })
 
-  const result = await waitForHealth(publicPort)
+  const result = await waitForHealth(publicPort, child, stderr)
   assert.equal(result.status, 200)
   assert.equal(result.body.ok, true)
   assert.equal(result.body.service, 'staffboard-gateway')
