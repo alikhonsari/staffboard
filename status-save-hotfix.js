@@ -15,11 +15,16 @@ const BOARD_SCOPED_KEYS = [
   'weeklyData', 'weeklyBoards', 'weeklyHistory', 'lockedWeeks',
   'commentsBoard', 'dayTemplates', 'auditLog',
 ]
+const STATE_GET_CACHE_MS = Number(process.env.STAFFBOARD_STATE_GET_CACHE_MS || 1500)
+const STATUS_CACHE_MS = Number(process.env.STAFFBOARD_STATUS_CACHE_MS || 5000)
 const clean = (value) => String(value || '').trim()
 const isObject = (value) => Boolean(value && typeof value === 'object' && !Array.isArray(value))
 const clone = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 let installed = false
 let postSaveQueue = Promise.resolve()
+let sharedReadPromise = null
+let sharedReadPayload = null
+let sharedReadAt = 0
 
 function hasMeaningfulValue(value) {
   if (Array.isArray(value)) return value.length > 0
@@ -114,17 +119,40 @@ function autoSaveHistory(payload, req) {
   }
 }
 
+function rememberSharedPayload(payload) {
+  sharedReadPayload = payload
+  sharedReadAt = Date.now()
+  runtime.currentStateVersion = String(payload?.updatedAt || runtime.currentStateVersion || '')
+  runtime.currentStateRevision = Number(payload?.stateRevision || payload?.state?.stateRevision || runtime.currentStateRevision || 0)
+  return payload
+}
+
+function invalidateSharedRead() {
+  sharedReadPayload = null
+  sharedReadAt = 0
+}
+
+async function coalescedStateRead(maxAgeMs, source = 'shared-state-read') {
+  if (sharedReadPayload && Date.now() - sharedReadAt <= maxAgeMs) return sharedReadPayload
+  if (sharedReadPromise) return sharedReadPromise
+  sharedReadPromise = reconcilePersistedState(source)
+    .then((reconciled) => {
+      recordReconciliation({ revision: reconciled.payload.stateRevision || reconciled.payload.state?.stateRevision || 0 })
+      return rememberSharedPayload(reconciled.payload)
+    })
+    .finally(() => { sharedReadPromise = null })
+  return sharedReadPromise
+}
+
 export function wrapFastStateGet() {
   return function fastStateGet(req, res) {
-    enqueue(async () => {
-      const reconciled = await reconcilePersistedState('state-get')
-      recordReconciliation({ revision: reconciled.payload.stateRevision || reconciled.payload.state?.stateRevision || 0 })
-      return res.json(reconciled.payload)
-    }).catch((error) => {
-      recordError(error)
-      console.error('Fast state load failed:', error)
-      if (!res.headersSent) res.status(503).json({ error: 'The shared board is temporarily unavailable. Retry shortly.', requestId: req.requestId || null })
-    })
+    coalescedStateRead(STATE_GET_CACHE_MS, 'state-get-coalesced')
+      .then((payload) => res.json(payload))
+      .catch((error) => {
+        recordError(error)
+        console.error('Fast state load failed:', error)
+        if (!res.headersSent) res.status(503).json({ error: 'The shared board is temporarily unavailable. Retry shortly.', requestId: req.requestId || null })
+      })
   }
 }
 
@@ -137,6 +165,7 @@ export function wrapFastStateSave() {
     const baseRevision = Number(req.body?.baseStateRevision || 0)
 
     enqueue(async () => {
+      invalidateSharedRead()
       const reconciled = await reconcilePersistedState('pre-save-reconciliation')
       const currentRevision = Number(reconciled.payload.stateRevision || reconciled.payload.state?.stateRevision || runtime.currentStateRevision || 0)
       if (hasRevisionBase && baseRevision !== currentRevision) return conflict(res, 'The board changed in another session. Reload the latest version before editing.')
@@ -169,8 +198,7 @@ export function wrapFastStateSave() {
         updatedBy: req.user?.username || 'unknown',
       }
       await putObjectJson(config.key, payload)
-      runtime.currentStateVersion = savedAt
-      runtime.currentStateRevision = nextRevision
+      rememberSharedPayload(payload)
       scheduleNext(mergedState)
       res.json(payload)
 
@@ -182,6 +210,7 @@ export function wrapFastStateSave() {
         for (const event of closureSweep.events || []) await appendHistory(historyEntryForEvent(event, mergedState, 'closed-day-save-reconciliation'))
       })
     }).catch((error) => {
+      invalidateSharedRead()
       recordError(error)
       console.error('Fast state save failed:', error)
       if (!res.headersSent) res.status(/closed|reopen|locked|changed in another|outdated/i.test(error.message || '') ? 409 : 503).json({
@@ -193,10 +222,7 @@ export function wrapFastStateSave() {
 }
 
 async function readStatusState() {
-  const payload = await getObjectJson(config.key, { state: {}, updatedAt: '', stateRevision: 0 })
-  runtime.currentStateVersion = String(payload.updatedAt || runtime.currentStateVersion || '')
-  runtime.currentStateRevision = Number(payload.stateRevision || payload.state?.stateRevision || runtime.currentStateRevision || 0)
-  return payload
+  return coalescedStateRead(STATUS_CACHE_MS, 'status-read-coalesced')
 }
 
 export function installStatusSaveHotfix(app) {
@@ -235,4 +261,7 @@ export function installStatusSaveHotfix(app) {
   })
 }
 
-export const __test = { hasBoardData, mergeBoardScoped, queuePostSave }
+export const __test = {
+  hasBoardData, mergeBoardScoped, queuePostSave, coalescedStateRead, invalidateSharedRead,
+  STATE_GET_CACHE_MS, STATUS_CACHE_MS,
+}
