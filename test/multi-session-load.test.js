@@ -1,11 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { injectAuthenticatedPolling } from '../authenticated-polling-plugin.js'
 
 const statusSource = fs.readFileSync(new URL('../status-save-hotfix.js', import.meta.url), 'utf8')
 const pollingSource = fs.readFileSync(new URL('../authenticated-polling-plugin.js', import.meta.url), 'utf8')
 
- test('state and status reads are coalesced behind one in-flight request', () => {
+test('state and status reads are coalesced behind one in-flight request', () => {
   assert.match(statusSource, /let sharedReadPromise = null/)
   assert.match(statusSource, /if \(sharedReadPromise\) return sharedReadPromise/)
   assert.match(statusSource, /reconcilePersistedState\(source\)/)
@@ -33,9 +34,29 @@ test('only one tab per device owns each background polling lease', () => {
   assert.match(pollingSource, /expiresAt: now \+ ttlMs/)
 })
 
-test('polling stays authenticated and at ten-second cadence', () => {
-  assert.match(pollingSource, /if \(!hasStaffBoardAuthToken\(\)\) return/)
-  assert.match(pollingSource, /const POLL_INTERVAL_MS = 10000/)
-  assert.doesNotMatch(pollingSource, /setInterval\(pollScheduledStatus, 2000\)/)
-  assert.doesNotMatch(pollingSource, /setInterval\(pollClosures, 2000\)/)
+test('polling stays authenticated and at ten-second cadence after transformation', () => {
+  const input = `function StaffBoardApp({ user, onLogout }) {
+  useEffect(() => {
+    const pollScheduledStatus = async () => {
+      await loadScheduledTransitionStatus()
+    }
+    const timer = setInterval(pollScheduledStatus, 2000)
+    return () => clearInterval(timer)
+  }, [])
+  useEffect(() => {
+    const pollClosures = async () => {
+      await loadDayClosureStatus()
+    }
+    const timer = setInterval(pollClosures, 2000)
+    return () => clearInterval(timer)
+  }, [])
+}`
+  const output = injectAuthenticatedPolling(input)
+  assert.match(output, /if \(!hasStaffBoardAuthToken\(\)\) return/)
+  assert.match(output, /claimStaffBoardPollingLease\('scheduled-status'\)/)
+  assert.match(output, /claimStaffBoardPollingLease\('closure-status'\)/)
+  assert.match(output, /setInterval\(pollScheduledStatus, 10000\)/)
+  assert.match(output, /setInterval\(pollClosures, 10000\)/)
+  assert.doesNotMatch(output, /setInterval\(pollScheduledStatus, 2000\)/)
+  assert.doesNotMatch(output, /setInterval\(pollClosures, 2000\)/)
 })
