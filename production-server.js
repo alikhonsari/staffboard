@@ -15,6 +15,7 @@ const backendEntry = path.join(__dirname, 'server-guarded-closures.js')
 const backendRestartDelayMs = Number(process.env.STAFFBOARD_BACKEND_RESTART_DELAY_MS || 1500)
 const readProxyTimeoutMs = Number(process.env.STAFFBOARD_READ_PROXY_TIMEOUT_MS || 25000)
 const mutationProxyTimeoutMs = Number(process.env.STAFFBOARD_MUTATION_PROXY_TIMEOUT_MS || 65000)
+const backendProbeTimeoutMs = Number(process.env.STAFFBOARD_BACKEND_PROBE_TIMEOUT_MS || 2000)
 
 let frontendReady = fs.existsSync(indexFile)
 let backendReady = false
@@ -22,9 +23,11 @@ let backendFailure = ''
 let buildFailure = ''
 let backendChild = null
 let backendRestartTimer = null
+let backendProbePromise = null
 let shuttingDown = false
 
 function sendJson(res, status, payload) {
+  if (res.destroyed || res.writableEnded) return
   const body = JSON.stringify(payload)
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -34,11 +37,46 @@ function sendJson(res, status, payload) {
   res.end(body)
 }
 
+function probeBackendOnce(timeoutMs = backendProbeTimeoutMs) {
+  return new Promise((resolve) => {
+    const request = http.get({
+      hostname: '127.0.0.1',
+      port: backendPort,
+      path: '/api/health',
+      timeout: timeoutMs,
+    }, (response) => {
+      response.resume()
+      resolve(response.statusCode === 200)
+    })
+    request.once('timeout', () => { request.destroy(); resolve(false) })
+    request.once('error', () => resolve(false))
+  })
+}
+
+function refreshBackendReadiness(reason = '') {
+  if (shuttingDown) return Promise.resolve(false)
+  if (backendProbePromise) return backendProbePromise
+  backendProbePromise = probeBackendOnce().then((ready) => {
+    backendReady = ready
+    if (ready) {
+      backendFailure = ''
+    } else if (reason) {
+      backendFailure = reason
+    }
+    return ready
+  }).finally(() => {
+    backendProbePromise = null
+  })
+  return backendProbePromise
+}
+
 function proxyApi(req, res) {
   const method = String(req.method || 'GET').toUpperCase()
   const timeoutMs = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
     ? mutationProxyTimeoutMs
     : readProxyTimeoutMs
+  let clientAborted = false
+
   const proxy = http.request({
     hostname: '127.0.0.1',
     port: backendPort,
@@ -51,25 +89,40 @@ function proxyApi(req, res) {
       'x-forwarded-proto': req.headers['x-forwarded-proto'] || 'https',
     },
   }, (upstream) => {
+    backendReady = true
+    backendFailure = ''
+    if (res.destroyed || res.writableEnded) {
+      upstream.destroy()
+      return
+    }
     res.writeHead(upstream.statusCode || 502, upstream.headers)
     upstream.pipe(res)
+  })
+
+  req.once('aborted', () => {
+    clientAborted = true
+    proxy.destroy()
+  })
+  res.once('close', () => {
+    if (!res.writableEnded) {
+      clientAborted = true
+      proxy.destroy()
+    }
   })
 
   proxy.setTimeout(timeoutMs, () => {
     proxy.destroy(new Error(`StaffBoard backend ${method} request timed out after ${timeoutMs}ms.`))
   })
   proxy.on('error', (error) => {
-    backendReady = false
+    if (clientAborted || req.aborted || res.destroyed) return
+
     backendFailure = error.message || String(error)
-    if (!res.headersSent) {
-      sendJson(res, 503, {
-        error: 'StaffBoard backend is temporarily unavailable.',
-        detail: backendFailure,
-        retryable: true,
-      })
-    } else {
-      res.destroy(error)
-    }
+    refreshBackendReadiness(backendFailure).catch(() => {})
+    sendJson(res, 503, {
+      error: 'StaffBoard backend is temporarily unavailable.',
+      detail: backendFailure,
+      retryable: true,
+    })
   })
   req.pipe(proxy)
 }
@@ -95,6 +148,7 @@ frontend.get('*', (req, res) => {
 
 const publicServer = http.createServer((req, res) => {
   if (req.url?.startsWith('/api/')) {
+    if (!backendReady) refreshBackendReadiness(backendFailure || 'Backend readiness probe failed.').catch(() => {})
     if (req.url.startsWith('/api/health') && !backendReady) {
       return sendJson(res, 200, {
         ok: true,
@@ -107,7 +161,7 @@ const publicServer = http.createServer((req, res) => {
     }
     if (!backendReady) {
       return sendJson(res, 503, {
-        error: 'StaffBoard backend is restarting. Retry shortly.',
+        error: 'StaffBoard backend is recovering. Retry shortly.',
         retryable: true,
         backendFailure: backendFailure || undefined,
       })
@@ -129,15 +183,7 @@ publicServer.listen(publicPort, '0.0.0.0', () => {
 async function waitForBackend(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs
   while (!shuttingDown && Date.now() < deadline) {
-    const ready = await new Promise((resolve) => {
-      const request = http.get({ hostname: '127.0.0.1', port: backendPort, path: '/api/health', timeout: 1000 }, (response) => {
-        response.resume()
-        resolve(response.statusCode === 200)
-      })
-      request.on('timeout', () => { request.destroy(); resolve(false) })
-      request.on('error', () => resolve(false))
-    })
-    if (ready) return true
+    if (await probeBackendOnce(1000)) return true
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   return false
