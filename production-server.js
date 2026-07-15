@@ -16,6 +16,7 @@ const backendRestartDelayMs = Number(process.env.STAFFBOARD_BACKEND_RESTART_DELA
 const readProxyTimeoutMs = Number(process.env.STAFFBOARD_READ_PROXY_TIMEOUT_MS || 25000)
 const mutationProxyTimeoutMs = Number(process.env.STAFFBOARD_MUTATION_PROXY_TIMEOUT_MS || 65000)
 const backendProbeTimeoutMs = Number(process.env.STAFFBOARD_BACKEND_PROBE_TIMEOUT_MS || 2000)
+const backendProbeIntervalMs = Number(process.env.STAFFBOARD_BACKEND_PROBE_INTERVAL_MS || 5000)
 
 let frontendReady = fs.existsSync(indexFile)
 let backendReady = false
@@ -24,7 +25,10 @@ let buildFailure = ''
 let backendChild = null
 let backendRestartTimer = null
 let backendProbePromise = null
+let backendProbeTimer = null
 let shuttingDown = false
+let backendStartedAt = null
+let backendRestartCount = 0
 
 function sendJson(res, status, payload) {
   if (res.destroyed || res.writableEnded) return
@@ -35,6 +39,22 @@ function sendJson(res, status, payload) {
     'cache-control': 'no-store',
   })
   res.end(body)
+}
+
+function healthPayload() {
+  return {
+    ok: true,
+    service: 'staffboard-gateway',
+    version: '1.6.9',
+    uptimeSeconds: Math.round(process.uptime()),
+    frontendReady,
+    backendReady,
+    backendPid: backendChild?.pid || null,
+    backendStartedAt,
+    backendRestartCount,
+    backendFailure: backendFailure || undefined,
+    buildFailure: buildFailure || undefined,
+  }
 }
 
 function probeBackendOnce(timeoutMs = backendProbeTimeoutMs) {
@@ -147,18 +167,21 @@ frontend.get('*', (req, res) => {
 })
 
 const publicServer = http.createServer((req, res) => {
-  if (req.url?.startsWith('/api/')) {
+  const requestPath = String(req.url || '').split('?')[0]
+
+  // Liveness must never depend on Spaces, the API queue, or the backend child.
+  if (requestPath === '/api/health' || requestPath === '/healthz') {
+    return sendJson(res, 200, healthPayload())
+  }
+
+  // Readiness is diagnostic and intentionally reports 503 until both layers are ready.
+  if (requestPath === '/api/ready' || requestPath === '/readyz') {
+    const ready = frontendReady && backendReady
+    return sendJson(res, ready ? 200 : 503, { ...healthPayload(), ready })
+  }
+
+  if (requestPath.startsWith('/api/')) {
     if (!backendReady) refreshBackendReadiness(backendFailure || 'Backend readiness probe failed.').catch(() => {})
-    if (req.url.startsWith('/api/health') && !backendReady) {
-      return sendJson(res, 200, {
-        ok: true,
-        ready: false,
-        frontendReady,
-        backendReady,
-        backendFailure: backendFailure || undefined,
-        buildFailure: buildFailure || undefined,
-      })
-    }
     if (!backendReady) {
       return sendJson(res, 503, {
         error: 'StaffBoard backend is recovering. Retry shortly.',
@@ -178,6 +201,8 @@ publicServer.keepAliveTimeout = 5_000
 publicServer.listen(publicPort, '0.0.0.0', () => {
   console.log(`StaffBoard production gateway listening on 0.0.0.0:${publicPort}`)
   console.log(`Static frontend ready: ${frontendReady}`)
+  console.log('Liveness endpoints: /api/health and /healthz')
+  console.log('Readiness endpoints: /api/ready and /readyz')
 })
 
 async function waitForBackend(timeoutMs = 30_000) {
@@ -192,6 +217,7 @@ async function waitForBackend(timeoutMs = 30_000) {
 function scheduleBackendRestart(reason) {
   if (shuttingDown || backendRestartTimer) return
   backendFailure = reason || 'Guarded backend exited unexpectedly.'
+  backendRestartCount += 1
   backendRestartTimer = setTimeout(() => {
     backendRestartTimer = null
     startBackend()
@@ -203,12 +229,14 @@ function startBackend() {
   if (shuttingDown || backendChild) return
   backendReady = false
   backendFailure = ''
+  backendStartedAt = new Date().toISOString()
   backendChild = spawn(process.execPath, [backendEntry], {
     cwd: __dirname,
     env: {
       ...process.env,
       PORT: String(backendPort),
       STAFFBOARD_PUBLIC_PORT: String(publicPort),
+      STAFFBOARD_API_ONLY: '1',
       NODE_ENV: 'production',
     },
     stdio: 'inherit',
@@ -223,6 +251,7 @@ function startBackend() {
     console.error(reason)
     backendReady = false
     backendChild = null
+    backendStartedAt = null
     scheduleBackendRestart(reason)
   })
 
@@ -259,12 +288,17 @@ function buildFrontendIfNeeded() {
 
 buildFrontendIfNeeded()
 startBackend()
+backendProbeTimer = setInterval(() => {
+  if (backendChild && !shuttingDown) refreshBackendReadiness('Periodic backend readiness probe failed.').catch(() => {})
+}, backendProbeIntervalMs)
+backendProbeTimer.unref?.()
 
 function shutdown(signal) {
   if (shuttingDown) return
   shuttingDown = true
   console.log(`Production gateway received ${signal}.`)
   if (backendRestartTimer) clearTimeout(backendRestartTimer)
+  if (backendProbeTimer) clearInterval(backendProbeTimer)
   if (backendChild && !backendChild.killed) backendChild.kill('SIGTERM')
   publicServer.close(() => process.exit(0))
   setTimeout(() => process.exit(1), 10_000).unref()

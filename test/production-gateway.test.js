@@ -20,9 +20,11 @@ test('production gateway opens the public port before starting the guarded backe
   assert.ok(backendIndex > listenIndex, 'backend startup must happen after the public listener is installed')
 })
 
-test('guarded backend runs in a supervised child process', () => {
+test('guarded backend runs in a supervised API-only child process', () => {
   assert.match(gateway, /spawn\(process\.execPath, \[backendEntry\]/)
   assert.doesNotMatch(gateway, /await import\('\.\/server-guarded-closures\.js'\)/)
+  assert.match(gateway, /STAFFBOARD_API_ONLY: '1'/)
+  assert.match(gateway, /NODE_ENV: 'production'/)
   assert.match(gateway, /backendChild\.on\('exit'/)
   assert.match(gateway, /scheduleBackendRestart\(reason\)/)
   assert.match(gateway, /STAFFBOARD_BACKEND_RESTART_DELAY_MS/)
@@ -50,6 +52,7 @@ test('gateway re-probes backend readiness instead of remaining stuck false', () 
   assert.match(gateway, /if \(backendProbePromise\) return backendProbePromise/)
   assert.match(gateway, /if \(!backendReady\) refreshBackendReadiness/)
   assert.match(gateway, /backendReady = ready/)
+  assert.match(gateway, /backendProbeIntervalMs/)
 })
 
 test('production gateway serves static dist assets and SPA fallback', () => {
@@ -58,11 +61,23 @@ test('production gateway serves static dist assets and SPA fallback', () => {
   assert.match(gateway, /cache-control': 'no-cache'/)
 })
 
-test('health remains responsive while frontend and backend prepare', () => {
-  assert.match(gateway, /req\.url\.startsWith\('\/api\/health'\) && !backendReady/)
-  assert.match(gateway, /sendJson\(res, 200/)
-  assert.match(gateway, /frontendReady/)
-  assert.match(gateway, /backendReady/)
+test('liveness is always local and never proxied to the backend', () => {
+  const healthIndex = gateway.indexOf("requestPath === '/api/health'")
+  const apiProxyIndex = gateway.indexOf("requestPath.startsWith('/api/')")
+  assert.ok(healthIndex >= 0, 'local /api/health route must exist')
+  assert.ok(apiProxyIndex > healthIndex, 'liveness must be handled before generic API proxying')
+  assert.match(gateway, /requestPath === '\/healthz'/)
+  assert.match(gateway, /return sendJson\(res, 200, healthPayload\(\)\)/)
+  assert.match(gateway, /service: 'staffboard-gateway'/)
+})
+
+test('readiness is separate and reports backend state explicitly', () => {
+  assert.match(gateway, /requestPath === '\/api\/ready'/)
+  assert.match(gateway, /requestPath === '\/readyz'/)
+  assert.match(gateway, /const ready = frontendReady && backendReady/)
+  assert.match(gateway, /ready \? 200 : 503/)
+  assert.match(gateway, /backendRestartCount/)
+  assert.match(gateway, /backendStartedAt/)
 })
 
 test('API proxy has bounded read and mutation timeouts with controlled failure response', () => {
@@ -79,7 +94,8 @@ test('missing dist starts a background build after the public server exists', ()
   assert.match(gateway, /buildFrontendIfNeeded\(\)[\s\S]*startBackend\(\)/)
 })
 
-test('shutdown terminates the supervised backend before exiting gateway', () => {
+test('shutdown terminates probes and supervised backend before exiting gateway', () => {
+  assert.match(gateway, /clearInterval\(backendProbeTimer\)/)
   assert.match(gateway, /backendChild\.kill\('SIGTERM'\)/)
   assert.match(gateway, /if \(shuttingDown\) return/)
 })
