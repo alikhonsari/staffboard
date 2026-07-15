@@ -37,12 +37,14 @@ export function validateEnvironment(baseConfig = {}, env = process.env) {
   const errors = []
   const warnings = []
   const hasAuth = Boolean(env.AUTH_TOKEN || env.AUTH_SECRET || env.ADMINS_JSON || env.STAFFBOARD_ADMINS_JSON || env.STAFFBOARD_ADMIN_USER)
-  const hasSpaces = Boolean(baseConfig.bucket && baseConfig.endpoint && baseConfig.accessKey && baseConfig.secretKey)
+  const hasDatabaseUrl = Boolean(String(env.DATABASE_URL || '').trim())
+  const hasPgParts = Boolean(env.PGHOST && env.PGUSER && env.PGPASSWORD && env.PGDATABASE)
+  const hasPostgres = Boolean(baseConfig.postgresConfigured || hasDatabaseUrl || hasPgParts)
 
   if (production && !hasAuth) errors.push('Production authentication is not configured.')
-  if (production && !hasSpaces) errors.push('Production DigitalOcean Spaces storage is not fully configured.')
+  if (production && !hasPostgres) errors.push('Production PostgreSQL storage is not configured. Set DATABASE_URL or PGHOST, PGPORT, PGDATABASE, PGUSER, and PGPASSWORD.')
   if (!production && !hasAuth) warnings.push('Authentication is not configured; development access may be unavailable.')
-  if (!hasSpaces) warnings.push('DigitalOcean Spaces is not fully configured.')
+  if (!hasPostgres) warnings.push('PostgreSQL storage is not configured.')
   if (!baseConfig.timeZone) warnings.push('Site timezone is not configured.')
   if ((env.AUTH_SECRET || '') === 'staffboard-dev-secret') warnings.push('Default development auth secret is in use.')
 
@@ -58,7 +60,8 @@ export function safeConfigSummary(baseConfig = {}, extras = {}) {
     validationMode: platformConfig.validationMode,
     timezone: baseConfig.timeZone || null,
     authConfigured: Boolean(baseConfig.authToken || baseConfig.authSecret),
-    spacesConfigured: Boolean(baseConfig.spacesConfigured),
+    storageBackend: baseConfig.storageBackend || 'postgres',
+    postgresConfigured: Boolean(baseConfig.postgresConfigured),
     stateObjectKey: baseConfig.key || null,
     historyObjectKey: baseConfig.historyKey || null,
     stateWarningBytes: platformConfig.stateWarningBytes,
