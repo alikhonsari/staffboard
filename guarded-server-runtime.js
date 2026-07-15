@@ -1,6 +1,8 @@
 import crypto from 'crypto'
 import dotenv from 'dotenv'
-import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import {
+  deleteJsonDocument, getJsonDocument, postgresStoreConfig, putJsonDocument, updateJsonDocument,
+} from './postgres-json-store.js'
 import {
   DEFAULT_SITE_TIME_ZONE, getNextPendingTransitionAt, processDueScheduledTransitions,
 } from './scheduled-transitions-core.js'
@@ -15,23 +17,14 @@ dotenv.config()
 export const config = {
   port: Number(process.env.PORT || 8787),
   authToken: process.env.AUTH_TOKEN || '',
-  authSecret: process.env.AUTH_SECRET || process.env.AUTH_TOKEN || process.env.SPACES_SECRET || 'staffboard-dev-secret',
-  bucket: process.env.SPACES_BUCKET || '',
-  key: process.env.SPACES_OBJECT_KEY || 'weekly/staffboard-2/staffboard-state.json',
-  endpoint: process.env.SPACES_ENDPOINT || '',
-  region: process.env.SPACES_REGION || 'us-east-1',
-  accessKey: process.env.SPACES_KEY || '',
-  secretKey: process.env.SPACES_SECRET || '',
+  authSecret: process.env.AUTH_SECRET || process.env.AUTH_TOKEN || process.env.PGPASSWORD || 'staffboard-dev-secret',
+  key: process.env.STAFFBOARD_STATE_KEY || process.env.SPACES_OBJECT_KEY || 'weekly/staffboard-2/staffboard-state.json',
   timeZone: process.env.STAFFBOARD_TIME_ZONE || DEFAULT_SITE_TIME_ZONE,
+  storageBackend: 'postgres',
+  postgresConfigured: postgresStoreConfig.configured,
 }
-config.historyKey = process.env.SPACES_HISTORY_KEY || config.key.replace(/\.json$/i, '-history.json')
-config.spacesConfigured = Boolean(config.bucket && config.endpoint && config.accessKey && config.secretKey)
-
-const s3 = config.spacesConfigured ? new S3Client({
-  endpoint: config.endpoint,
-  region: config.region,
-  credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey },
-}) : null
+config.historyKey = process.env.STAFFBOARD_HISTORY_KEY || process.env.SPACES_HISTORY_KEY || config.key.replace(/\.json$/i, '-history.json')
+config.spacesConfigured = false
 
 export const runtime = {
   currentStateVersion: null,
@@ -51,27 +44,14 @@ const BOARD_RULES = {
 const AREA_TYPES = new Set(['production', 'support', 'labor_share', 'unassigned'])
 const clean = (value) => String(value || '').trim()
 
-async function streamToString(stream) {
-  const chunks = []
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk))
-  return Buffer.concat(chunks).toString('utf-8')
-}
-
 export async function getObjectJson(key, fallback) {
   const started = Date.now()
   try {
-    if (!s3) throw new Error('Spaces is not configured')
-    const output = await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }))
-    const text = await streamToString(output.Body)
-    const parsed = text ? JSON.parse(text) : fallback
-    recordStateRead({ durationMs: Date.now() - started, bytes: Buffer.byteLength(text || ''), success: true })
+    const parsed = await getJsonDocument(key, fallback)
+    const body = JSON.stringify(parsed)
+    recordStateRead({ durationMs: Date.now() - started, bytes: Buffer.byteLength(body), success: true })
     return parsed
   } catch (error) {
-    const name = String(error?.name || error?.Code || '')
-    if (name.includes('NoSuchKey') || error?.$metadata?.httpStatusCode === 404) {
-      recordStateRead({ durationMs: Date.now() - started, bytes: 0, success: true })
-      return fallback
-    }
     recordStateRead({ durationMs: Date.now() - started, success: false, error })
     throw error
   }
@@ -79,10 +59,9 @@ export async function getObjectJson(key, fallback) {
 
 export async function putObjectJson(key, payload) {
   const started = Date.now()
-  const body = JSON.stringify(payload, null, 2)
+  const body = JSON.stringify(payload)
   try {
-    if (!s3) throw new Error('Spaces is not configured')
-    await s3.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: body, ContentType: 'application/json' }))
+    await putJsonDocument(key, payload)
     recordStateWrite({ durationMs: Date.now() - started, bytes: Buffer.byteLength(body), success: true, revision: payload?.stateRevision || payload?.state?.stateRevision || 0 })
   } catch (error) {
     recordStateWrite({ durationMs: Date.now() - started, bytes: Buffer.byteLength(body), success: false, error })
@@ -91,8 +70,7 @@ export async function putObjectJson(key, payload) {
 }
 
 export async function deleteObjectJson(key) {
-  if (!s3) throw new Error('Spaces is not configured')
-  await s3.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }))
+  await deleteJsonDocument(key)
 }
 
 export function registerBeforePersistObserver(observer) {
@@ -105,10 +83,11 @@ export function registerAfterPersistObserver(observer) {
 
 export async function appendHistory(entry) {
   try {
-    const history = await getObjectJson(config.historyKey, { events: [] })
-    const rows = (Array.isArray(history.events) ? history.events : []).filter((row) => !entry.id || row.id !== entry.id)
-    rows.unshift(entry)
-    await putObjectJson(config.historyKey, { events: rows.slice(0, 500), updatedAt: new Date().toISOString() })
+    await updateJsonDocument(config.historyKey, { events: [] }, (history) => {
+      const rows = (Array.isArray(history?.events) ? history.events : []).filter((row) => !entry.id || row.id !== entry.id)
+      rows.unshift(entry)
+      return { events: rows.slice(0, 500), updatedAt: new Date().toISOString() }
+    })
   } catch (error) {
     recordError(error)
     console.warn('Failed to write StaffBoard history:', error.message)
@@ -174,7 +153,7 @@ export async function persistState(state, actor, source, events = []) {
 }
 
 export async function reconcilePersistedState(source = 'reconciliation') {
-  if (!config.spacesConfigured) return { changed: false, payload: { state: {}, updatedAt: '', stateRevision: 0 }, events: [] }
+  if (!config.postgresConfigured) return { changed: false, payload: { state: {}, updatedAt: '', stateRevision: 0 }, events: [] }
   const payload = await getObjectJson(config.key, { state: {}, updatedAt: '', stateRevision: 0 })
   runtime.currentStateVersion = String(payload.updatedAt || '')
   runtime.currentStateRevision = Number(payload.stateRevision || payload.state?.stateRevision || 0)
