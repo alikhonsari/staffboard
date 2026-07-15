@@ -1,7 +1,7 @@
 {
   "name": "staffboard-final-full-spaces",
   "private": true,
-  "version": "1.6.6",
+  "version": "1.6.7",
   "type": "module",
   "scripts": {
     "dev": "node server-guarded-closures.js",
