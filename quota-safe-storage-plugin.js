@@ -49,7 +49,10 @@ export function injectQuotaSafeStorage(code) {
     .replace('localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)', 'persistLocalStateSafely(normalized, lastRemoteStateJson)')
     .replace('localStorage.setItem(STORAGE_KEY, JSON.stringify(state))', 'persistLocalStateSafely(state)')
     .replace('localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)', 'persistLocalStateSafely(savedState, lastRemoteStateJson)')
-    .replace('saveQueued: Boolean(saveQueue),', 'saveQueued: Boolean(saveQueue),\n    localCacheError: lastLocalCacheError,')
+
+  if (!next.includes('localCacheError: lastLocalCacheError')) {
+    next = next.replace('saveQueued: Boolean(saveQueue),', 'saveQueued: Boolean(saveQueue),\n    localCacheError: lastLocalCacheError,')
+  }
 
   const unsafePatterns = [
     'localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)',
