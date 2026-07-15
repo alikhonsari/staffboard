@@ -33,7 +33,23 @@ test('backend failure does not terminate the public gateway', () => {
   assert.doesNotMatch(exitHandler, /process\.exit/)
   assert.match(exitHandler, /backendReady = false/)
   assert.match(exitHandler, /backendChild = null/)
-  assert.match(gateway, /StaffBoard backend is restarting\. Retry shortly\./)
+  assert.match(gateway, /StaffBoard backend is recovering\. Retry shortly\./)
+})
+
+test('client-aborted requests do not poison backend readiness', () => {
+  assert.match(gateway, /let clientAborted = false/)
+  assert.match(gateway, /req\.once\('aborted'/)
+  assert.match(gateway, /if \(clientAborted \|\| req\.aborted \|\| res\.destroyed\) return/)
+  const proxyError = gateway.slice(gateway.indexOf("proxy.on('error'"), gateway.indexOf('const frontend = express()'))
+  assert.doesNotMatch(proxyError, /backendReady = false/)
+})
+
+test('gateway re-probes backend readiness instead of remaining stuck false', () => {
+  assert.match(gateway, /let backendProbePromise = null/)
+  assert.match(gateway, /function refreshBackendReadiness/)
+  assert.match(gateway, /if \(backendProbePromise\) return backendProbePromise/)
+  assert.match(gateway, /if \(!backendReady\) refreshBackendReadiness/)
+  assert.match(gateway, /backendReady = ready/)
 })
 
 test('production gateway serves static dist assets and SPA fallback', () => {
