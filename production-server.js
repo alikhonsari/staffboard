@@ -11,11 +11,16 @@ const publicPort = Number(process.env.PORT || 8080)
 const backendPort = Number(process.env.STAFFBOARD_INTERNAL_PORT || publicPort + 1000)
 const distDir = path.join(__dirname, 'dist')
 const indexFile = path.join(distDir, 'index.html')
+const backendEntry = path.join(__dirname, 'server-guarded-closures.js')
+const backendRestartDelayMs = Number(process.env.STAFFBOARD_BACKEND_RESTART_DELAY_MS || 1500)
 
 let frontendReady = fs.existsSync(indexFile)
 let backendReady = false
 let backendFailure = ''
 let buildFailure = ''
+let backendChild = null
+let backendRestartTimer = null
+let shuttingDown = false
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload)
@@ -48,10 +53,12 @@ function proxyApi(req, res) {
     proxy.destroy(new Error('StaffBoard backend request timed out.'))
   })
   proxy.on('error', (error) => {
+    backendReady = false
+    backendFailure = error.message || String(error)
     if (!res.headersSent) {
       sendJson(res, 503, {
         error: 'StaffBoard backend is temporarily unavailable.',
-        detail: error.message,
+        detail: backendFailure,
         retryable: true,
       })
     } else {
@@ -94,7 +101,7 @@ const publicServer = http.createServer((req, res) => {
     }
     if (!backendReady) {
       return sendJson(res, 503, {
-        error: 'StaffBoard backend is starting. Retry shortly.',
+        error: 'StaffBoard backend is restarting. Retry shortly.',
         retryable: true,
         backendFailure: backendFailure || undefined,
       })
@@ -115,7 +122,7 @@ publicServer.listen(publicPort, '0.0.0.0', () => {
 
 async function waitForBackend(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
+  while (!shuttingDown && Date.now() < deadline) {
     const ready = await new Promise((resolve) => {
       const request = http.get({ hostname: '127.0.0.1', port: backendPort, path: '/api/health', timeout: 1000 }, (response) => {
         response.resume()
@@ -130,17 +137,53 @@ async function waitForBackend(timeoutMs = 30_000) {
   return false
 }
 
-async function startBackend() {
-  try {
-    process.env.PORT = String(backendPort)
-    await import('./server-guarded-closures.js')
-    backendReady = await waitForBackend()
-    if (!backendReady) backendFailure = 'The guarded backend did not become ready within 30 seconds.'
-    console.log(`Guarded backend ready: ${backendReady} on 127.0.0.1:${backendPort}`)
-  } catch (error) {
+function scheduleBackendRestart(reason) {
+  if (shuttingDown || backendRestartTimer) return
+  backendFailure = reason || 'Guarded backend exited unexpectedly.'
+  backendRestartTimer = setTimeout(() => {
+    backendRestartTimer = null
+    startBackend()
+  }, backendRestartDelayMs)
+  backendRestartTimer.unref?.()
+}
+
+function startBackend() {
+  if (shuttingDown || backendChild) return
+  backendReady = false
+  backendFailure = ''
+  backendChild = spawn(process.execPath, [backendEntry], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      PORT: String(backendPort),
+      STAFFBOARD_PUBLIC_PORT: String(publicPort),
+      NODE_ENV: 'production',
+    },
+    stdio: 'inherit',
+  })
+
+  backendChild.on('error', (error) => {
     backendFailure = error.message || String(error)
-    console.error('Guarded backend failed to start:', error)
-  }
+    console.error('Guarded backend process could not start:', error)
+  })
+  backendChild.on('exit', (code, signal) => {
+    const reason = `Guarded backend exited with code ${code ?? 'null'}${signal ? ` from ${signal}` : ''}.`
+    console.error(reason)
+    backendReady = false
+    backendChild = null
+    scheduleBackendRestart(reason)
+  })
+
+  waitForBackend().then((ready) => {
+    if (backendChild && !shuttingDown) {
+      backendReady = ready
+      if (!ready) backendFailure = 'The guarded backend did not become ready within 30 seconds.'
+      console.log(`Guarded backend ready: ${backendReady} on 127.0.0.1:${backendPort}`)
+    }
+  }).catch((error) => {
+    backendReady = false
+    backendFailure = error.message || String(error)
+  })
 }
 
 function buildFrontendIfNeeded() {
@@ -166,7 +209,11 @@ buildFrontendIfNeeded()
 startBackend()
 
 function shutdown(signal) {
+  if (shuttingDown) return
+  shuttingDown = true
   console.log(`Production gateway received ${signal}.`)
+  if (backendRestartTimer) clearTimeout(backendRestartTimer)
+  if (backendChild && !backendChild.killed) backendChild.kill('SIGTERM')
   publicServer.close(() => process.exit(0))
   setTimeout(() => process.exit(1), 10_000).unref()
 }
