@@ -49,8 +49,10 @@ test('health remains responsive while frontend and backend prepare', () => {
   assert.match(gateway, /backendReady/)
 })
 
-test('API proxy has a bounded timeout and controlled failure response', () => {
-  assert.match(gateway, /proxy\.setTimeout\(25_000/)
+test('API proxy has bounded read and mutation timeouts with controlled failure response', () => {
+  assert.match(gateway, /readProxyTimeoutMs[\s\S]*25000/)
+  assert.match(gateway, /mutationProxyTimeoutMs[\s\S]*65000/)
+  assert.match(gateway, /proxy\.setTimeout\(timeoutMs/)
   assert.match(gateway, /StaffBoard backend is temporarily unavailable/)
   assert.match(gateway, /sendJson\(res, 503/)
 })
