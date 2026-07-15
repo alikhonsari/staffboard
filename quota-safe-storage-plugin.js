@@ -1,4 +1,6 @@
-const HELPER_MARKER = "const REQUEST_TIMEOUT_MS = 12000"
+const LEGACY_HELPER_MARKER = "const REQUEST_TIMEOUT_MS = 12000"
+const UPDATED_HELPER_MARKER = `const READ_REQUEST_TIMEOUT_MS = 12000
+const MUTATION_REQUEST_TIMEOUT_MS = 60000`
 
 const QUOTA_SAFE_HELPERS = `
 const LOCAL_STATE_CACHE_MAX_BYTES = 1500000
@@ -40,10 +42,16 @@ function persistLocalStateSafely(state = {}, serialized = '') {
 }`
 
 export function injectQuotaSafeStorage(code) {
-  if (!code.includes(HELPER_MARKER)) throw new Error('Quota-safe storage transform could not locate timeout marker.')
+  const helperMarker = code.includes(LEGACY_HELPER_MARKER)
+    ? LEGACY_HELPER_MARKER
+    : code.includes(UPDATED_HELPER_MARKER)
+      ? UPDATED_HELPER_MARKER
+      : ''
+  if (!helperMarker) throw new Error('Quota-safe storage transform could not locate timeout constants.')
+
   let next = code
   if (!next.includes('function persistLocalStateSafely')) {
-    next = next.replace(HELPER_MARKER, `${HELPER_MARKER}\n${QUOTA_SAFE_HELPERS}`)
+    next = next.replace(helperMarker, `${helperMarker}\n${QUOTA_SAFE_HELPERS}`)
   }
   next = next
     .replace('localStorage.setItem(STORAGE_KEY, lastRemoteStateJson)', 'persistLocalStateSafely(normalized, lastRemoteStateJson)')
