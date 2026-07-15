@@ -5,16 +5,19 @@ import { errorPayload, errors } from '../platform/errors.js'
 import { __test as loggerTest } from '../platform/logger.js'
 import { hasPermission, normalizeRole } from '../platform/permissions.js'
 
-test('production environment validation requires auth and Spaces without exposing secrets', () => {
-  const result = validateEnvironment({ bucket: '', endpoint: '', accessKey: '', secretKey: '', timeZone: 'America/New_York' }, { NODE_ENV: 'production' })
+test('production environment validation requires auth and PostgreSQL without exposing secrets', () => {
+  const result = validateEnvironment({ postgresConfigured: false, timeZone: 'America/New_York' }, { NODE_ENV: 'production' })
   assert.equal(result.ok, false)
   assert.match(result.errors.join(' '), /authentication/i)
-  assert.match(result.errors.join(' '), /Spaces/i)
+  assert.match(result.errors.join(' '), /PostgreSQL/i)
 
-  const summary = safeConfigSummary({ authToken: 'secret', authSecret: 'secret', spacesConfigured: true, key: 'state.json', historyKey: 'history.json', timeZone: 'America/New_York' })
+  const summary = safeConfigSummary({ authToken: 'secret', authSecret: 'secret', storageBackend: 'postgres', postgresConfigured: true, key: 'state.json', historyKey: 'history.json', timeZone: 'America/New_York' })
   assert.equal(summary.authConfigured, true)
+  assert.equal(summary.storageBackend, 'postgres')
+  assert.equal(summary.postgresConfigured, true)
   assert.equal(Object.hasOwn(summary, 'authToken'), false)
   assert.equal(Object.hasOwn(summary, 'authSecret'), false)
+  assert.equal(Object.hasOwn(summary, 'password'), false)
 })
 
 test('structured errors keep the legacy error string and request ID', () => {
