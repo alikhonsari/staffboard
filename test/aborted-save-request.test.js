@@ -17,11 +17,12 @@ async function requestWithTimeout(url, options = {}) {
 
 const gateway = fs.readFileSync(new URL('../production-server.js', import.meta.url), 'utf8')
 
- test('frontend keeps reads bounded while allowing mutations up to sixty seconds', () => {
+test('frontend allows large restored-state reads while keeping mutations bounded', () => {
   const transformed = injectMutationAwareTimeouts(fixture)
-  assert.match(transformed, /READ_REQUEST_TIMEOUT_MS = 12000/)
+  assert.match(transformed, /READ_REQUEST_TIMEOUT_MS = 55000/)
   assert.match(transformed, /MUTATION_REQUEST_TIMEOUT_MS = 60000/)
   assert.match(transformed, /\['POST', 'PUT', 'PATCH', 'DELETE'\]\.includes\(method\)/)
+  assert.match(transformed, /still loading the saved PostgreSQL data/)
   assert.match(transformed, /StaffBoard is still saving this change/)
   assert.doesNotMatch(transformed, /setTimeout\(\(\) => controller\.abort\(\), REQUEST_TIMEOUT_MS\)/)
 })
