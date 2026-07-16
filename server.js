@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import path from 'path'
+import { loadAdmins } from './admin-env.js'
 import {
   getJsonDocument, postgresHealth, postgresStoreConfig, putJsonDocument, updateJsonDocument,
 } from './postgres-json-store.js'
@@ -38,7 +39,16 @@ function takeBoardScopedState(state = {}) { const snapshot = {}; BOARD_SCOPED_KE
 function mergeBoardScoped(existingBoard = {}, incomingBoard = {}) { const existing = isPlainObject(existingBoard) ? existingBoard : {}; const incoming = isPlainObject(incomingBoard) ? incomingBoard : {}; if (hasBoardData(existing) && !hasBoardData(incoming)) return existing; return { ...existing, ...incoming, weeklyBoards: { ...(existing.weeklyBoards || {}), ...(incoming.weeklyBoards || {}) }, weeklyHistory: { ...(existing.weeklyHistory || {}), ...(incoming.weeklyHistory || {}) }, lockedWeeks: { ...(existing.lockedWeeks || {}), ...(incoming.lockedWeeks || {}) } } }
 function mergeIncomingState(existingState = {}, incomingState = {}) { const existing = isPlainObject(existingState) ? existingState : {}; const incoming = isPlainObject(incomingState) ? incomingState : {}; const boardId = clean(incoming.currentBoardId || existing.currentBoardId || 'speed_day') || 'speed_day'; const existingStore = isPlainObject(existing.boardStore) ? existing.boardStore : {}; const incomingStore = isPlainObject(incoming.boardStore) ? incoming.boardStore : {}; const mergedStore = { ...existingStore }; Object.entries(incomingStore).forEach(([id, board]) => { mergedStore[id] = mergeBoardScoped(existingStore[id], board) }); mergedStore[boardId] = mergeBoardScoped(mergedStore[boardId], takeBoardScopedState(incoming)); const merged = { ...existing, ...incoming, currentBoardId: boardId, boardStore: mergedStore }; const activeBoard = mergedStore[boardId]; if (activeBoard) BOARD_SCOPED_KEYS.forEach((key) => { if (activeBoard[key] !== undefined) merged[key] = cloneJson(activeBoard[key]) }); return merged }
 
-function getAdmins() { const raw = process.env.ADMINS_JSON || process.env.STAFFBOARD_ADMINS_JSON || ''; if (raw) { try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) return parsed.map((admin) => ({ username: clean(admin.username), password: clean(admin.password), role: admin.role || 'admin' })).filter((admin) => admin.username && admin.password) } catch { console.warn('Invalid ADMINS_JSON / STAFFBOARD_ADMINS_JSON') } } const envUser = clean(process.env.STAFFBOARD_ADMIN_USER || process.env.ADMIN_USER || ''); const envPass = clean(process.env.STAFFBOARD_ADMIN_PASS || process.env.ADMIN_PASS || ''); const admins = []; if (envUser && envPass) admins.push({ username: envUser, password: envPass, role: 'admin' }); if (AUTH_TOKEN) admins.push({ username: 'ali', password: AUTH_TOKEN, role: 'admin' }); return admins }
+let adminWarningSignature = ''
+function getAdmins() {
+  const result = loadAdmins(process.env, AUTH_TOKEN)
+  const signature = result.warnings.join('|')
+  if (signature && signature !== adminWarningSignature) {
+    result.warnings.forEach((warning) => console.warn(warning))
+    adminWarningSignature = signature
+  }
+  return result.admins
+}
 function signSession(user) { const payload = { username: user.username, role: user.role || 'admin', exp: Date.now() + 86400000 }; const body = Buffer.from(JSON.stringify(payload)).toString('base64url'); const sig = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url'); return `${body}.${sig}` }
 function verifySession(token) { try { if (!token || !token.includes('.')) return null; const [body, sig] = token.split('.'); const expected = crypto.createHmac('sha256', AUTH_SECRET).update(body).digest('base64url'); if (Buffer.byteLength(sig) !== Buffer.byteLength(expected)) return null; if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null; const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf-8')); if (payload.exp && Date.now() > payload.exp) return null; return payload } catch { return null } }
 function getBearerToken(req) { const auth = req.headers.authorization || ''; const headerToken = req.headers['x-auth-token'] || ''; return auth.startsWith('Bearer ') ? auth.slice(7) : headerToken }
