@@ -150,7 +150,7 @@ function comparable(day) {
 export function assertClosedDayDataUnchanged(existingState, incomingState, context = {}) {
   const boardId = clean(context.boardId || incomingState?.currentBoardId)
   const weekStartDate = clean(context.weekStartDate || incomingState?.weekStartDate)
-  const day = clean(context.day)
+  const day = clean(context.day || incomingState?.selectedDay)
   if (!boardId || !weekStartDate || !day) return
 
   const operationId = operationIdForBoard(boardId)
