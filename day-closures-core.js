@@ -147,14 +147,20 @@ function comparable(day) {
   return value
 }
 
-export function assertClosedDayDataUnchanged(existingState, incomingState) {
+export function assertClosedDayDataUnchanged(existingState, incomingState, context = {}) {
+  const boardId = clean(context.boardId || incomingState?.currentBoardId)
+  const weekStartDate = clean(context.weekStartDate || incomingState?.weekStartDate)
+  const day = clean(context.day || incomingState?.selectedDay)
+  if (!boardId || !weekStartDate || !day) return
+
+  const operationId = operationIdForBoard(boardId)
   for (const row of listActiveClosures(existingState)) {
-    for (const boardId of boardIdsForClosure(`${row.operationId}_day`, row.scope)) {
-      const existing = boardDay(existingState, boardId, row.weekStartDate, row.day)
-      const incoming = boardDay(incomingState, boardId, row.weekStartDate, row.day)
-      if (incoming !== undefined && JSON.stringify(comparable(existing)) !== JSON.stringify(comparable(incoming))) {
-        throw new Error('This operational day is closed. Reopen it before editing staffing, assignments, goals, production, notes, or rack data.')
-      }
+    if (row.operationId !== operationId || row.weekStartDate !== weekStartDate || row.day !== day) continue
+    if (!boardIdsForClosure(`${row.operationId}_day`, row.scope).includes(boardId)) continue
+    const existing = boardDay(existingState, boardId, weekStartDate, day)
+    const incoming = boardDay(incomingState, boardId, weekStartDate, day)
+    if (incoming !== undefined && JSON.stringify(comparable(existing)) !== JSON.stringify(comparable(incoming))) {
+      throw new Error('This operational day is closed. Reopen it before editing staffing, assignments, goals, production, notes, or rack data.')
     }
   }
 }

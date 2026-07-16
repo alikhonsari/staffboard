@@ -40,14 +40,14 @@ export function injectLocalNavigationSaveState(source) {
   next = requireReplace(
     next,
     `  const stateJson = JSON.stringify(state)\n  if (stateJson === lastRemoteStateJson) return { skipped: true, reason: 'unchanged' }`,
-    `  const remoteState = { ...state }\n  delete remoteState.selectedDay\n  const stateJson = JSON.stringify(remoteState)\n  const comparableLastRemote = (() => {\n    try {\n      const parsed = JSON.parse(lastRemoteStateJson || '{}')\n      delete parsed.selectedDay\n      return JSON.stringify(parsed)\n    } catch {\n      return lastRemoteStateJson\n    }\n  })()\n  if (stateJson === comparableLastRemote) return { skipped: true, reason: 'unchanged' }`,
+    `  const remoteState = { ...state }\n  const activeSelectedDay = String(state?.selectedDay || '')\n  delete remoteState.selectedDay\n  const stateJson = JSON.stringify(remoteState)\n  const comparableLastRemote = (() => {\n    try {\n      const parsed = JSON.parse(lastRemoteStateJson || '{}')\n      delete parsed.selectedDay\n      return JSON.stringify(parsed)\n    } catch {\n      return lastRemoteStateJson\n    }\n  })()\n  if (stateJson === comparableLastRemote) return { skipped: true, reason: 'unchanged' }`,
     'remote state comparison',
   )
 
   next = requireReplace(
     next,
     `      state,\n      baseUpdatedAt: remoteUpdatedAt ?? '',`,
-    `      state: remoteState,\n      baseUpdatedAt: remoteUpdatedAt ?? '',`,
+    `      state: remoteState,\n      viewContext: {\n        boardId: String(state?.currentBoardId || ''),\n        weekStartDate: String(state?.weekStartDate || ''),\n        day: activeSelectedDay,\n      },\n      baseUpdatedAt: remoteUpdatedAt ?? '',`,
     'remote save body',
   )
 

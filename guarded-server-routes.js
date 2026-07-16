@@ -34,9 +34,18 @@ function conflict(res, message) {
   })
 }
 
+function requirePostgres(res, requestId = null) {
+  if (config.postgresConfigured) return true
+  res.status(503).json({
+    error: 'PostgreSQL is not configured',
+    requestId,
+  })
+  return false
+}
+
 async function scheduleAction(req, res) {
   try {
-    if (!config.spacesConfigured) return res.status(500).json({ error: 'Spaces is not configured' })
+    if (!requirePostgres(res, req.requestId || null)) return
     const body = req.body || {}
     assertValidAction('schedule', body)
     const actor = req.user?.username || 'System'
@@ -85,7 +94,7 @@ async function scheduleStatus(req, res) {
 
 async function closureAction(req, res) {
   try {
-    if (!config.spacesConfigured) return res.status(500).json({ error: 'Spaces is not configured', requestId: req.requestId || null })
+    if (!requirePostgres(res, req.requestId || null)) return
     const body = req.body || {}
     assertValidAction('closure', body)
     const actor = req.user?.username || 'System'
@@ -202,7 +211,7 @@ export function wrapStateSave(handler) {
       }
       const existing = reconciled.payload.state || {}
       const incoming = req.body?.state || {}
-      assertClosedDayDataUnchanged(existing, incoming)
+      assertClosedDayDataUnchanged(existing, incoming, req.body?.viewContext || {})
       await prepareDirectStateSave(existing, incoming, {
         actor: req.user?.username || 'System',
         source: 'state-save',
