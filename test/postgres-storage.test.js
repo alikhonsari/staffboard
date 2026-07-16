@@ -65,5 +65,5 @@ test('production validation requires PostgreSQL instead of Spaces', () => {
   assert.match(platformConfig, /Production PostgreSQL storage is not configured/)
   assert.doesNotMatch(platformConfig, /Production DigitalOcean Spaces storage is not fully configured/)
   assert.equal(packageJson.dependencies.pg, '^8.13.3')
-  assert.equal(packageJson.version, '1.6.13')
+  assert.equal(packageJson.version, '1.6.14')
 })
