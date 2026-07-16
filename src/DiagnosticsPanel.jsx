@@ -46,7 +46,7 @@ export default function DiagnosticsPanel() {
       <div className="diagnostics-header">
         <div>
           <div className="table-kicker">Platform Diagnostics</div>
-          <div className="small">Sanitized operational health. Tokens, passwords, Spaces keys, and state payloads are never shown.</div>
+          <div className="small">Sanitized operational health. Tokens, passwords, database credentials, and state payloads are never shown.</div>
         </div>
         <div className="diagnostics-actions">
           <button className="secondary" type="button" onClick={refresh} disabled={busy}>Refresh</button>
@@ -65,7 +65,8 @@ export default function DiagnosticsPanel() {
       </div>
 
       <dl className="diagnostics-grid">
-        <div><dt>Spaces</dt><dd>{snapshot?.spacesConfigured ? 'Connected' : 'Not configured'}</dd></div>
+        <div><dt>Storage backend</dt><dd>{snapshot?.storageBackend === 'postgres' ? 'PostgreSQL' : value(snapshot?.storageBackend)}</dd></div>
+        <div><dt>PostgreSQL</dt><dd>{snapshot?.postgresConfigured ? 'Connected' : 'Not configured'}</dd></div>
         <div><dt>Last successful read</dt><dd>{value(runtime.lastSuccessfulReadAt)}</dd></div>
         <div><dt>Last successful write</dt><dd>{value(runtime.lastSuccessfulWriteAt)}</dd></div>
         <div><dt>Last reconciliation</dt><dd>{value(runtime.lastReconciliationAt)}</dd></div>
