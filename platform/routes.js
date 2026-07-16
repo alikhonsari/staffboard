@@ -52,10 +52,12 @@ export function installPlatformRoutes(app, methods, dependencies) {
 
   get.call(app, '/api/health', async (req, res) => {
     let state = {}
+    let storageHealthy = false
     try {
       if (config.postgresConfigured) {
         const payload = await getObjectJson(config.key, { state: {} })
         state = payload?.state || {}
+        storageHealthy = true
       }
     } catch (error) {
       recordError(error)
@@ -65,8 +67,8 @@ export function installPlatformRoutes(app, methods, dependencies) {
       scheduleTimerActive: Boolean(runtime.scheduleTimer),
       fallbackTimerActive: Boolean(runtime.fallbackTimer),
     })
-    return res.status(snapshot.ok ? 200 : 503).json({
-      ok: snapshot.ok,
+    return res.status(storageHealthy ? 200 : 503).json({
+      ok: storageHealthy,
       degraded: snapshot.degraded,
       storageBackend: 'postgres',
       postgresConfigured: Boolean(config.postgresConfigured),
