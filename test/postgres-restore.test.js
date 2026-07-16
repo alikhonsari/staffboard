@@ -27,13 +27,18 @@ test('restore validation rejects malformed or unknown payloads', () => {
   assert.throws(() => validateRestorePayload('other', {}), /state, history, or versions/)
 })
 
-test('server mounts restore route before the normal JSON body parser', () => {
+test('server mounts the token-protected restore route before the normal JSON body parser', () => {
   const server = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8')
+  const restore = fs.readFileSync(new URL('../postgres-restore.js', import.meta.url), 'utf8')
   const restorePosition = server.indexOf('installPostgresRestoreRoutes(app')
   const jsonPosition = server.indexOf('app.use(express.json({ limit: STATE_JSON_LIMIT }))')
   assert.ok(restorePosition >= 0)
   assert.ok(jsonPosition > restorePosition)
   assert.match(server, /STAFFBOARD_STATE_JSON_LIMIT/)
   assert.match(server, /STAFFBOARD_VERSION_HISTORY_KEY/)
-  assert.match(server, /restoreEnabled/)
+  assert.match(restore, /STAFFBOARD_RESTORE_TOKEN/)
+  assert.match(restore, /x-staffboard-restore-token/)
+  assert.match(restore, /safeEqual/)
+  const publicHealth = server.slice(server.indexOf("app.get('/api/health'"), server.indexOf("app.post('/api/login'"))
+  assert.doesNotMatch(publicHealth, /restoreEnabled/)
 })
