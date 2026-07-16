@@ -22,6 +22,7 @@ const KEY = process.env.STAFFBOARD_STATE_KEY || process.env.SPACES_OBJECT_KEY ||
 const HISTORY_KEY = process.env.STAFFBOARD_HISTORY_KEY || process.env.SPACES_HISTORY_KEY || KEY.replace(/\.json$/i, '-history.json')
 const BASE_PREFIX = KEY.includes('/') ? KEY.slice(0, KEY.lastIndexOf('/') + 1) : ''
 const VERSION_HISTORY_KEY = process.env.STAFFBOARD_VERSION_HISTORY_KEY || process.env.SPACES_VERSION_HISTORY_KEY || `${BASE_PREFIX}version-history.json`
+const STATE_JSON_LIMIT = String(process.env.STAFFBOARD_STATE_JSON_LIMIT || '64mb').trim() || '64mb'
 const PRESENCE_TTL_MS = 45_000
 const BOARD_SCOPED_KEYS = ['boardTitle', 'boardShift', 'selectedDay', 'areaDefs', 'weeklyData', 'weeklyBoards', 'weeklyHistory', 'lockedWeeks', 'commentsBoard']
 
@@ -32,7 +33,7 @@ installPostgresRestoreRoutes(app, {
   requireAuth,
   keys: { state: KEY, history: HISTORY_KEY, versions: VERSION_HISTORY_KEY },
 })
-app.use(express.json({ limit: '12mb' }))
+app.use(express.json({ limit: STATE_JSON_LIMIT }))
 
 const clean = (value) => String(value || '').trim()
 const isPlainObject = (value) => value && typeof value === 'object' && !Array.isArray(value)
@@ -44,7 +45,7 @@ const hasWeekData = (weeklyData = {}) => isPlainObject(weeklyData) && Object.val
 function hasBoardData(board = {}) { return isPlainObject(board) && (hasWeekData(board.weeklyData) || hasMeaningfulValue(board.weeklyBoards || {}) || hasMeaningfulValue(board.weeklyHistory || {}) || hasMeaningfulValue(board.commentsBoard || {})) }
 function takeBoardScopedState(state = {}) { const snapshot = {}; BOARD_SCOPED_KEYS.forEach((key) => { if (state[key] !== undefined) snapshot[key] = cloneJson(state[key]) }); return snapshot }
 function mergeBoardScoped(existingBoard = {}, incomingBoard = {}) { const existing = isPlainObject(existingBoard) ? existingBoard : {}; const incoming = isPlainObject(incomingBoard) ? incomingBoard : {}; if (hasBoardData(existing) && !hasBoardData(incoming)) return existing; return { ...existing, ...incoming, weeklyBoards: { ...(existing.weeklyBoards || {}), ...(incoming.weeklyBoards || {}) }, weeklyHistory: { ...(existing.weeklyHistory || {}), ...(incoming.weeklyHistory || {}) }, lockedWeeks: { ...(existing.lockedWeeks || {}), ...(incoming.lockedWeeks || {}) } } }
-function mergeIncomingState(existingState = {}, incomingState = {}) { const existing = isPlainObject(existingState) ? existingState : {}; const incoming = isPlainObject(incomingState) ? incomingState : {}; const boardId = clean(incoming.currentBoardId || existing.currentBoardId || 'speed_day') || 'speed_day'; const existingStore = isPlainObject(existing.boardStore) ? existing.boardStore : {}; const incomingStore = isPlainObject(incoming.boardStore) ? incoming.boardStore : {}; const mergedStore = { ...existingStore }; Object.entries(incomingStore).forEach(([id, board]) => { mergedStore[id] = mergeBoardScoped(existingStore[id], board) }); mergedStore[boardId] = mergeBoardScoped(mergedStore[boardId], takeBoardScopedState(incoming)); const merged = { ...existing, ...incoming, currentBoardId: boardId, boardStore: mergedStore }; const activeBoard = mergedStore[boardId]; if (activeBoard) BOARD_SCOPED_KEYS.forEach((key) => { if (activeBoard[key] !== undefined) merged[key] = cloneJson(activeBoard[key]) }); return merged }
+function mergeIncomingState(existingState = {}, incomingState = {}) { const existing = isPlainObject(existingState) ? existingState : {}; const incoming = isPlainObject(incomingState) ? incomingState : {}; const boardId = clean(incoming.currentBoardId || existing.currentBoardId || 'speed_day') || 'speed_day'; const existingStore = isPlainObject(existing.boardStore) ? existing.boardStore : {}; const incomingStore = isPlainObject(incoming.boardStore) ? incoming.boardStore : {}; const mergedStore = { ...existingStore }; Object.entries(incomingStore).forEach(([id, board]) => { mergedStore[id] = mergeBoardScoped(existingStore[id], board) }); mergedStore[boardId] = mergeBoardScoped(mergedStore[boardId], takeBoardScopedState(incoming)); const merged = { ...existing, ...incoming, currentBoardId: boardId, boardStore: mergedStore, storageConfig: { mode: 'postgres', backend: 'postgres' } }; const activeBoard = mergedStore[boardId]; if (activeBoard) BOARD_SCOPED_KEYS.forEach((key) => { if (activeBoard[key] !== undefined) merged[key] = cloneJson(activeBoard[key]) }); return merged }
 
 let adminWarningSignature = ''
 function getAdmins() {
@@ -77,6 +78,7 @@ app.get('/api/health', async (req, res) => {
     stateKey: KEY,
     historyKey: HISTORY_KEY,
     versionHistoryKey: VERSION_HISTORY_KEY,
+    stateJsonLimit: STATE_JSON_LIMIT,
     restoreEnabled: Boolean(clean(process.env.STAFFBOARD_RESTORE_TOKEN)),
     importFromSpaces: postgresStoreConfig.importFromSpaces,
   })
@@ -91,6 +93,17 @@ app.put('/api/state', requireAuth, saveState)
 app.post('/api/state', requireAuth, saveState)
 app.get('/api/history', requireAuth, async (req, res) => { try { const history = await getJsonDocument(HISTORY_KEY, { events: [] }); res.json({ events: Array.isArray(history.events) ? history.events : [] }) } catch (err) { console.error(err); res.status(503).json({ error: err.message || 'Failed to load history from PostgreSQL.' }) } })
 
+app.use((error, req, res, next) => {
+  if (error?.type === 'entity.too.large' || error?.status === 413) {
+    return res.status(413).json({
+      error: `StaffBoard state exceeds the configured ${STATE_JSON_LIMIT} save limit.`,
+      code: 'STATE_PAYLOAD_TOO_LARGE',
+      limit: STATE_JSON_LIMIT,
+    })
+  }
+  return next(error)
+})
+
 async function start() {
   if (process.env.NODE_ENV !== 'production' && process.env.STAFFBOARD_API_ONLY !== '1') {
     const { createServer: createViteServer } = await import('vite')
@@ -101,6 +114,7 @@ async function start() {
     console.log(`StaffBoard V6 running on http://127.0.0.1:${PORT}`)
     console.log(`Runtime mode: ${process.env.NODE_ENV === 'production' || process.env.STAFFBOARD_API_ONLY === '1' ? 'API only' : 'Vite development'}`)
     console.log(`Storage backend: PostgreSQL configured=${postgresStoreConfig.configured}`)
+    console.log(`State JSON save limit: ${STATE_JSON_LIMIT}`)
     console.log(`Admins configured: ${getAdmins().map((a) => a.username).join(', ') || 'none'}`)
     console.log(`Protected restore endpoint: ${clean(process.env.STAFFBOARD_RESTORE_TOKEN) ? 'enabled' : 'disabled'}`)
   })
