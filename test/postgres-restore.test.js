@@ -30,9 +30,10 @@ test('restore validation rejects malformed or unknown payloads', () => {
 test('server mounts restore route before the normal JSON body parser', () => {
   const server = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8')
   const restorePosition = server.indexOf('installPostgresRestoreRoutes(app')
-  const jsonPosition = server.indexOf("app.use(express.json({ limit: '12mb' }))")
+  const jsonPosition = server.indexOf('app.use(express.json({ limit: STATE_JSON_LIMIT }))')
   assert.ok(restorePosition >= 0)
   assert.ok(jsonPosition > restorePosition)
+  assert.match(server, /STAFFBOARD_STATE_JSON_LIMIT/)
   assert.match(server, /STAFFBOARD_VERSION_HISTORY_KEY/)
   assert.match(server, /restoreEnabled/)
 })
