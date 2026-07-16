@@ -9,7 +9,7 @@ const LEGACY_FUNCTION = `async function requestWithTimeout(url, options = {}) {
   }
 }`
 
-const UPDATED_TIMEOUTS = `const READ_REQUEST_TIMEOUT_MS = 12000
+const UPDATED_TIMEOUTS = `const READ_REQUEST_TIMEOUT_MS = 55000
 const MUTATION_REQUEST_TIMEOUT_MS = 60000`
 
 const UPDATED_FUNCTION = `async function requestWithTimeout(url, options = {}) {
@@ -24,7 +24,7 @@ const UPDATED_FUNCTION = `async function requestWithTimeout(url, options = {}) {
   } catch (error) {
     if (error?.name === 'AbortError') {
       throw new Error(method === 'GET'
-        ? 'StaffBoard took too long to load. Retry shortly.'
+        ? 'StaffBoard is still loading the saved PostgreSQL data. Retrying automatically.'
         : 'StaffBoard is still saving this change. Check your connection and retry if it does not complete.')
     }
     throw error
@@ -42,6 +42,7 @@ export function injectMutationAwareTimeouts(code) {
     .replace(LEGACY_TIMEOUT, UPDATED_TIMEOUTS)
     .replace(LEGACY_FUNCTION, UPDATED_FUNCTION)
 
+  if (!next.includes('READ_REQUEST_TIMEOUT_MS = 55000')) throw new Error('Read timeout was not installed.')
   if (!next.includes('MUTATION_REQUEST_TIMEOUT_MS = 60000')) throw new Error('Mutation timeout was not installed.')
   if (!next.includes("['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)")) throw new Error('Mutation method detection was not installed.')
   return next
