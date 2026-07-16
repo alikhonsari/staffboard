@@ -35,41 +35,46 @@ export function installPlatformRoutes(app, methods, dependencies) {
 
   get.call(app, '/api/health/ready', async (req, res) => {
     const environment = validateEnvironment(config)
-    if (!environment.ok || !config.spacesConfigured) {
+    if (!environment.ok || !config.postgresConfigured) {
       return res.status(503).json({ ok: false, status: 'not_ready', errors: environment.errors, warnings: environment.warnings, requestId: req.requestId })
     }
     const started = Date.now()
     try {
       const payload = await withTimeout(getObjectJson(config.key, { state: {}, updatedAt: '', stateRevision: 0 }), platformConfig.readinessTimeoutMs)
       recordStateRead({ durationMs: Date.now() - started, bytes: Buffer.byteLength(JSON.stringify(payload || {})), success: true })
-      return res.json({ ok: true, status: 'ready', stateRevision: Number(payload?.stateRevision || payload?.state?.stateRevision || 0), updatedAt: payload?.updatedAt || '', requestId: req.requestId })
+      return res.json({ ok: true, status: 'ready', storageBackend: 'postgres', stateRevision: Number(payload?.stateRevision || payload?.state?.stateRevision || 0), updatedAt: payload?.updatedAt || '', requestId: req.requestId })
     } catch (error) {
       recordStateRead({ durationMs: Date.now() - started, success: false, error })
       logEvent('error', 'readiness_failed', { requestId: req.requestId, error: error.message })
-      return res.status(503).json({ ok: false, status: 'not_ready', error: 'Storage readiness check failed.', requestId: req.requestId })
+      return res.status(503).json({ ok: false, status: 'not_ready', error: 'PostgreSQL readiness check failed.', requestId: req.requestId })
     }
   })
 
   get.call(app, '/api/health', async (req, res) => {
     let state = {}
-    let backupCount = 0
     try {
-      const [payload, backupIndex] = await Promise.all([
-        config.spacesConfigured ? getObjectJson(config.key, { state: {} }) : Promise.resolve({ state: {} }),
-        config.spacesConfigured ? getObjectJson(recoveryKeys.backupIndex, { backups: [] }) : Promise.resolve({ backups: [] }),
-      ])
-      state = payload?.state || {}
-      backupCount = countBackups(backupIndex)
+      if (config.postgresConfigured) {
+        const payload = await getObjectJson(config.key, { state: {} })
+        state = payload?.state || {}
+      }
     } catch (error) {
       recordError(error)
     }
     const snapshot = diagnosticsSnapshot(config, state, {
-      backupCount,
       queueActive: Boolean(runtime.queue),
       scheduleTimerActive: Boolean(runtime.scheduleTimer),
       fallbackTimerActive: Boolean(runtime.fallbackTimer),
     })
-    res.status(snapshot.degraded ? 200 : 200).json(snapshot)
+    return res.status(snapshot.ok ? 200 : 503).json({
+      ok: snapshot.ok,
+      degraded: snapshot.degraded,
+      storageBackend: 'postgres',
+      postgresConfigured: Boolean(config.postgresConfigured),
+      applicationVersion: snapshot.applicationVersion,
+      uptimeSeconds: snapshot.uptimeSeconds,
+      warnings: snapshot.warnings,
+      requestId: req.requestId,
+    })
   })
 
   get.call(app, '/api/platform/diagnostics', requireAdminAuth, requirePermission('diagnostics:view'), async (req, res) => {
