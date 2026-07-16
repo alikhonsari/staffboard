@@ -79,9 +79,10 @@ export function diagnosticWarnings(state = {}) {
 export function diagnosticsSnapshot(baseConfig = {}, state = {}, extras = {}) {
   const metrics = calculateStateMetrics(state)
   const warnings = diagnosticWarnings(state)
+  const storageReady = Boolean(baseConfig.postgresConfigured)
   return {
-    ok: warnings.length === 0 && Boolean(baseConfig.spacesConfigured),
-    degraded: warnings.length > 0 || !baseConfig.spacesConfigured,
+    ok: warnings.length === 0 && storageReady,
+    degraded: warnings.length > 0 || !storageReady,
     warnings,
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
     ...safeConfigSummary(baseConfig),

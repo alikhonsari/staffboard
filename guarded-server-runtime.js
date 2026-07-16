@@ -17,14 +17,13 @@ dotenv.config()
 export const config = {
   port: Number(process.env.PORT || 8787),
   authToken: process.env.AUTH_TOKEN || '',
-  authSecret: process.env.AUTH_SECRET || process.env.AUTH_TOKEN || process.env.PGPASSWORD || 'staffboard-dev-secret',
+  authSecret: process.env.AUTH_SECRET || process.env.STAFFBOARD_SESSION_SECRET || process.env.AUTH_TOKEN || 'staffboard-dev-secret',
   key: process.env.STAFFBOARD_STATE_KEY || process.env.SPACES_OBJECT_KEY || 'weekly/staffboard-2/staffboard-state.json',
   timeZone: process.env.STAFFBOARD_TIME_ZONE || DEFAULT_SITE_TIME_ZONE,
   storageBackend: 'postgres',
   postgresConfigured: postgresStoreConfig.configured,
 }
 config.historyKey = process.env.STAFFBOARD_HISTORY_KEY || process.env.SPACES_HISTORY_KEY || config.key.replace(/\.json$/i, '-history.json')
-config.spacesConfigured = false
 
 export const runtime = {
   currentStateVersion: null,
