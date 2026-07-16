@@ -5,6 +5,7 @@ import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import { loadAdmins } from './admin-env.js'
+import { installPostgresRestoreRoutes } from './postgres-restore.js'
 import {
   getJsonDocument, postgresHealth, postgresStoreConfig, putJsonDocument, updateJsonDocument,
 } from './postgres-json-store.js'
@@ -19,12 +20,18 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN || ''
 const AUTH_SECRET = process.env.AUTH_SECRET || process.env.AUTH_TOKEN || process.env.PGPASSWORD || 'staffboard-dev-secret'
 const KEY = process.env.STAFFBOARD_STATE_KEY || process.env.SPACES_OBJECT_KEY || 'weekly/staffboard-2/staffboard-state.json'
 const HISTORY_KEY = process.env.STAFFBOARD_HISTORY_KEY || process.env.SPACES_HISTORY_KEY || KEY.replace(/\.json$/i, '-history.json')
+const BASE_PREFIX = KEY.includes('/') ? KEY.slice(0, KEY.lastIndexOf('/') + 1) : ''
+const VERSION_HISTORY_KEY = process.env.STAFFBOARD_VERSION_HISTORY_KEY || process.env.SPACES_VERSION_HISTORY_KEY || `${BASE_PREFIX}version-history.json`
 const PRESENCE_TTL_MS = 45_000
 const BOARD_SCOPED_KEYS = ['boardTitle', 'boardShift', 'selectedDay', 'areaDefs', 'weeklyData', 'weeklyBoards', 'weeklyHistory', 'lockedWeeks', 'commentsBoard']
 
 const presenceSessions = new Map()
 const app = express()
 app.use(cors())
+installPostgresRestoreRoutes(app, {
+  requireAuth,
+  keys: { state: KEY, history: HISTORY_KEY, versions: VERSION_HISTORY_KEY },
+})
 app.use(express.json({ limit: '12mb' }))
 
 const clean = (value) => String(value || '').trim()
@@ -69,6 +76,8 @@ app.get('/api/health', async (req, res) => {
     presenceOnline: publicPresence().length,
     stateKey: KEY,
     historyKey: HISTORY_KEY,
+    versionHistoryKey: VERSION_HISTORY_KEY,
+    restoreEnabled: Boolean(clean(process.env.STAFFBOARD_RESTORE_TOKEN)),
     importFromSpaces: postgresStoreConfig.importFromSpaces,
   })
 })
@@ -93,6 +102,7 @@ async function start() {
     console.log(`Runtime mode: ${process.env.NODE_ENV === 'production' || process.env.STAFFBOARD_API_ONLY === '1' ? 'API only' : 'Vite development'}`)
     console.log(`Storage backend: PostgreSQL configured=${postgresStoreConfig.configured}`)
     console.log(`Admins configured: ${getAdmins().map((a) => a.username).join(', ') || 'none'}`)
+    console.log(`Protected restore endpoint: ${clean(process.env.STAFFBOARD_RESTORE_TOKEN) ? 'enabled' : 'disabled'}`)
   })
 }
 
