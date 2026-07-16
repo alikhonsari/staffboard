@@ -11,7 +11,7 @@ import { completeDirectStateSave, prepareDirectStateSave } from './recovery-dire
 import { recordError, recordReconciliation } from './platform/diagnostics.js'
 
 const BOARD_SCOPED_KEYS = [
-  'boardTitle', 'boardShift', 'selectedDay', 'areaDefs', 'weekStartDate',
+  'boardTitle', 'boardShift', 'areaDefs', 'weekStartDate',
   'weeklyData', 'weeklyBoards', 'weeklyHistory', 'lockedWeeks',
   'commentsBoard', 'dayTemplates', 'auditLog',
 ]
@@ -48,13 +48,19 @@ const hasBoardData = (board = {}) => isObject(board) && (
   hasMeaningfulValue(board.weeklyHistory || {}) || hasMeaningfulValue(board.commentsBoard || {})
 )
 
+function stripNavigation(value = {}) {
+  const output = isObject(value) ? { ...value } : {}
+  delete output.selectedDay
+  return output
+}
+
 function takeBoardScopedState(state = {}) {
   return Object.fromEntries(BOARD_SCOPED_KEYS.filter((key) => state[key] !== undefined).map((key) => [key, clone(state[key])]))
 }
 
 function mergeBoardScoped(existingBoard = {}, incomingBoard = {}) {
-  const existing = isObject(existingBoard) ? existingBoard : {}
-  const incoming = isObject(incomingBoard) ? incomingBoard : {}
+  const existing = stripNavigation(existingBoard)
+  const incoming = stripNavigation(incomingBoard)
   if (hasBoardData(existing) && !hasBoardData(incoming)) return existing
   return {
     ...existing,
@@ -66,15 +72,23 @@ function mergeBoardScoped(existingBoard = {}, incomingBoard = {}) {
 }
 
 export function mergeIncomingState(existingState = {}, incomingState = {}) {
-  const existing = isObject(existingState) ? existingState : {}
-  const incoming = isObject(incomingState) ? incomingState : {}
+  const existing = stripNavigation(existingState)
+  const incoming = stripNavigation(incomingState)
   const boardId = clean(incoming.currentBoardId || existing.currentBoardId || 'speed_day') || 'speed_day'
   const existingStore = isObject(existing.boardStore) ? existing.boardStore : {}
   const incomingStore = isObject(incoming.boardStore) ? incoming.boardStore : {}
-  const mergedStore = { ...existingStore }
-  for (const [id, board] of Object.entries(incomingStore)) mergedStore[id] = mergeBoardScoped(existingStore[id], board)
+  const mergedStore = {}
+  for (const [id, board] of Object.entries(existingStore)) mergedStore[id] = mergeBoardScoped({}, board)
+  for (const [id, board] of Object.entries(incomingStore)) mergedStore[id] = mergeBoardScoped(mergedStore[id], board)
   mergedStore[boardId] = mergeBoardScoped(mergedStore[boardId], takeBoardScopedState(incoming))
-  const merged = { ...existing, ...incoming, currentBoardId: boardId, boardStore: mergedStore }
+  const merged = {
+    ...existing,
+    ...incoming,
+    currentBoardId: boardId,
+    boardStore: mergedStore,
+    storageConfig: { mode: 'postgres', backend: 'postgres' },
+  }
+  delete merged.selectedDay
   const activeBoard = mergedStore[boardId]
   if (activeBoard) for (const key of BOARD_SCOPED_KEYS) if (activeBoard[key] !== undefined) merged[key] = clone(activeBoard[key])
   return merged
@@ -114,7 +128,7 @@ function autoSaveHistory(payload, req) {
     boardTitle: state.boardTitle || '',
     boardId: state.currentBoardId || '',
     weekStartDate: state.weekStartDate || '',
-    selectedDay: state.selectedDay || '',
+    selectedDay: clean(req.body?.viewContext?.day),
     source: 'fast-state-save',
   }
 }
@@ -173,7 +187,7 @@ export function wrapFastStateSave() {
 
       const existing = reconciled.payload.state || {}
       const incoming = req.body?.state || {}
-      assertClosedDayDataUnchanged(existing, incoming)
+      assertClosedDayDataUnchanged(existing, incoming, req.body?.viewContext || {})
       await prepareDirectStateSave(existing, incoming, {
         actor: req.user?.username || 'System', source: 'state-save', stateRevision: currentRevision,
       })
