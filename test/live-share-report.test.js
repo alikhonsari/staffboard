@@ -22,8 +22,15 @@ test('Share PNG uses live state instead of compact localStorage', () => {
   assert.match(exporter, /staffing-board-share-\$\{dayName\(state\)\.toLowerCase\(\)\}/)
 })
 
-test('floating Share PNG button loads the live exporter', () => {
-  assert.match(loader, /share-png-live\.js\?v=3/)
+test('orphan assignments never expose raw internal builder IDs as names', () => {
+  assert.match(exporter, /Unknown \/ Removed Builders/)
+  assert.match(exporter, /Unknown \/ removed builder \$\{orphanIndex\}/)
+  assert.match(exporter, /Missing profile/)
+  assert.doesNotMatch(exporter, /name: safe\(builder\.name, id\)/)
+})
+
+test('floating Share PNG button loads the latest live exporter', () => {
+  assert.match(loader, /share-png-live\.js\?v=4/)
   assert.doesNotMatch(loader, /share-png-safe\.js/)
   assert.match(vite, /liveShareStatePlugin\(\)/)
 })
