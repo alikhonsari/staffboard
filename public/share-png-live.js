@@ -2,6 +2,7 @@
   const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
   const STAFFED = new Set(['Present', 'Training', 'Indirect'])
   const ABSENCE = new Set(['PTO', 'LOA', 'VTO', 'Absent'])
+  const ORPHAN_AREA = 'Unknown / Removed Builders'
 
   const safe = (value, fallback = '') => String(value ?? fallback).trim()
   const liveState = () => window.__STAFFBOARD_SHARE_STATE__ || null
@@ -14,23 +15,27 @@
 
   function builders(state) {
     const pool = new Map((state?.builderPool || []).map((builder) => [builder.id, builder]))
+    let orphanIndex = 0
     return Object.entries(dayData(state).assignments || {}).map(([id, assignment]) => {
-      const builder = pool.get(id) || { id, name: id }
+      const builder = pool.get(id)
+      const orphaned = !builder
+      if (orphaned) orphanIndex += 1
       return {
         id,
-        name: safe(builder.name, id),
-        isLineLead: Boolean(builder.isLineLead),
-        status: safe(assignment.status || 'Present'),
-        area: safe(assignment.area || 'Unassigned', 'Unassigned'),
-        subArea: safe(assignment.subArea),
-        role: safe(assignment.role),
-        speedLiteTeamId: safe(assignment.speedLiteTeamId),
+        name: orphaned ? `Unknown / removed builder ${orphanIndex}` : safe(builder.name, 'Unnamed builder'),
+        isLineLead: Boolean(builder?.isLineLead),
+        isOrphaned: orphaned,
+        status: orphaned ? 'Missing profile' : safe(assignment.status || 'Present'),
+        area: orphaned ? ORPHAN_AREA : safe(assignment.area || 'Unassigned', 'Unassigned'),
+        subArea: orphaned ? '' : safe(assignment.subArea),
+        role: orphaned ? '' : safe(assignment.role),
+        speedLiteTeamId: orphaned ? '' : safe(assignment.speedLiteTeamId),
       }
     }).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   function speedLiteModel(state, people) {
-    const staffed = people.filter((person) => person.area === 'Speed Lite' && STAFFED.has(person.status))
+    const staffed = people.filter((person) => !person.isOrphaned && person.area === 'Speed Lite' && STAFFED.has(person.status))
     const seen = new Set()
     const teams = (Array.isArray(dayData(state).speedLiteTeams) ? dayData(state).speedLiteTeams : [])
       .filter((team) => team?.id && !seen.has(String(team.id)) && seen.add(String(team.id)))
@@ -50,8 +55,10 @@
     areaDefs(state).forEach((area) => { if (area !== 'Speed Lite') groups[area] = [] })
     groups['Line Leads'] = []
     groups['Not Staffed / Away'] = []
+    groups[ORPHAN_AREA] = []
     people.forEach((person) => {
-      if (ABSENCE.has(person.status)) groups['Not Staffed / Away'].push(person)
+      if (person.isOrphaned) groups[ORPHAN_AREA].push(person)
+      else if (ABSENCE.has(person.status)) groups['Not Staffed / Away'].push(person)
       else if (person.area === 'Speed Lite' && STAFFED.has(person.status)) return
       else if (person.isLineLead && STAFFED.has(person.status)) groups['Line Leads'].push(person)
       else {
@@ -96,13 +103,15 @@
 
   function renderStandard(ctx, x, y, width, area, people) {
     const height = standardHeight(people)
-    fill(ctx, x, y, width, height, 22, '#ffffff'); stroke(ctx, x, y, width, height, 22)
-    text(ctx, area, x + 20, y + 34, '950 23px Arial')
-    text(ctx, String(people.length), x + width - 28, y + 34, '950 23px Arial', '#2563eb', 'right')
+    const orphanGroup = area === ORPHAN_AREA
+    fill(ctx, x, y, width, height, 22, orphanGroup ? '#fff7ed' : '#ffffff')
+    stroke(ctx, x, y, width, height, 22, orphanGroup ? '#fdba74' : '#d8e1ec')
+    text(ctx, area, x + 20, y + 34, '950 23px Arial', orphanGroup ? '#9a3412' : '#172033')
+    text(ctx, String(people.length), x + width - 28, y + 34, '950 23px Arial', orphanGroup ? '#ea580c' : '#2563eb', 'right')
     people.forEach((person, index) => {
       const yy = y + 82 + index * 42
       text(ctx, person.name, x + 20, yy, '900 18px Arial')
-      text(ctx, [person.status, person.subArea, person.role].filter(Boolean).join(' · ') || '—', x + 245, yy, '750 14px Arial', '#64748b')
+      text(ctx, [person.status, person.subArea, person.role].filter(Boolean).join(' · ') || '—', x + 245, yy, '750 14px Arial', orphanGroup ? '#9a3412' : '#64748b')
     })
     return height
   }
@@ -185,9 +194,5 @@
     }
   }
 
-  function open() {
-    exportPng()
-  }
-
-  window.StaffBoardSharePNG = { open, exportPng }
+  window.StaffBoardSharePNG = { open: exportPng, exportPng }
 })()
