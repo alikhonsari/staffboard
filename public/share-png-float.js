@@ -1,10 +1,10 @@
 (() => {
   function loadSharePng() {
     if (window.StaffBoardSharePNG) return Promise.resolve()
-    if (!document.querySelector('[data-share-png-safe-file]')) {
+    if (!document.querySelector('[data-share-png-live-file]')) {
       const script = document.createElement('script')
-      script.src = '/share-png-safe.js?v=2'
-      script.dataset.sharePngSafeFile = 'true'
+      script.src = '/share-png-live.js?v=3'
+      script.dataset.sharePngLiveFile = 'true'
       document.body.appendChild(script)
     }
     return new Promise((resolve) => {
