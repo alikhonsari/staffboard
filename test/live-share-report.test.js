@@ -29,6 +29,13 @@ test('orphan assignments never expose raw internal builder IDs as names', () => 
   assert.doesNotMatch(exporter, /name: safe\(builder\.name, id\)/)
 })
 
+test('Unassigned section is capped and summarizes hidden rows', () => {
+  assert.match(exporter, /UNASSIGNED_VISIBLE_LIMIT = 6/)
+  assert.match(exporter, /area === 'Unassigned' \? people\.slice\(0, UNASSIGNED_VISIBLE_LIMIT\)/)
+  assert.match(exporter, /\+ \$\{hidden\} more unassigned/)
+  assert.match(exporter, /standardHeight\(area, people\)/)
+})
+
 test('floating Share PNG button loads the latest live exporter', () => {
   assert.match(loader, /share-png-live\.js\?v=4/)
   assert.doesNotMatch(loader, /share-png-safe\.js/)

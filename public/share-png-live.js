@@ -3,6 +3,7 @@
   const STAFFED = new Set(['Present', 'Training', 'Indirect'])
   const ABSENCE = new Set(['PTO', 'LOA', 'VTO', 'Absent'])
   const ORPHAN_AREA = 'Unknown / Removed Builders'
+  const UNASSIGNED_VISIBLE_LIMIT = 6
 
   const safe = (value, fallback = '') => String(value ?? fallback).trim()
   const liveState = () => window.__STAFFBOARD_SHARE_STATE__ || null
@@ -93,7 +94,17 @@
   function stroke(ctx, x, y, width, height, radius, color = '#d8e1ec') { ctx.strokeStyle = color; roundRect(ctx, x, y, width, height, radius); ctx.stroke() }
   function text(ctx, value, x, y, font, color = '#172033', align = 'left') { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align; ctx.fillText(value, x, y); ctx.textAlign = 'left' }
 
-  function standardHeight(people) { return 70 + people.length * 42 }
+  function visiblePeople(area, people) {
+    return area === 'Unassigned' ? people.slice(0, UNASSIGNED_VISIBLE_LIMIT) : people
+  }
+  function hiddenPeopleCount(area, people) {
+    return area === 'Unassigned' ? Math.max(0, people.length - UNASSIGNED_VISIBLE_LIMIT) : 0
+  }
+  function standardHeight(area, people) {
+    const shown = visiblePeople(area, people).length
+    const hidden = hiddenPeopleCount(area, people)
+    return 70 + shown * 42 + (hidden ? 38 : 0)
+  }
   function speedHeight(model) {
     let height = 78
     model.teams.forEach((team) => { height += 45 + Math.max(1, team.members.length) * 34 + 8 })
@@ -102,17 +113,24 @@
   }
 
   function renderStandard(ctx, x, y, width, area, people) {
-    const height = standardHeight(people)
+    const height = standardHeight(area, people)
     const orphanGroup = area === ORPHAN_AREA
+    const shown = visiblePeople(area, people)
+    const hidden = hiddenPeopleCount(area, people)
     fill(ctx, x, y, width, height, 22, orphanGroup ? '#fff7ed' : '#ffffff')
     stroke(ctx, x, y, width, height, 22, orphanGroup ? '#fdba74' : '#d8e1ec')
     text(ctx, area, x + 20, y + 34, '950 23px Arial', orphanGroup ? '#9a3412' : '#172033')
     text(ctx, String(people.length), x + width - 28, y + 34, '950 23px Arial', orphanGroup ? '#ea580c' : '#2563eb', 'right')
-    people.forEach((person, index) => {
+    shown.forEach((person, index) => {
       const yy = y + 82 + index * 42
       text(ctx, person.name, x + 20, yy, '900 18px Arial')
       text(ctx, [person.status, person.subArea, person.role].filter(Boolean).join(' · ') || '—', x + 245, yy, '750 14px Arial', orphanGroup ? '#9a3412' : '#64748b')
     })
+    if (hidden) {
+      const yy = y + 82 + shown.length * 42
+      fill(ctx, x + 16, yy - 24, width - 32, 30, 10, '#eff6ff')
+      text(ctx, `+ ${hidden} more unassigned`, x + 28, yy - 3, '850 14px Arial', '#1d4ed8')
+    }
     return height
   }
 
@@ -154,10 +172,10 @@
         if (speed.total || speed.teams.length) blocks.push({ type: 'speed', model: speed, height: speedHeight(speed) })
       } else {
         const match = groups.find(([name]) => name === area)
-        if (match) blocks.push({ type: 'standard', area, people: match[1], height: standardHeight(match[1]) })
+        if (match) blocks.push({ type: 'standard', area, people: match[1], height: standardHeight(area, match[1]) })
       }
     })
-    groups.filter(([area]) => !ordered.includes(area)).forEach(([area, rows]) => blocks.push({ type: 'standard', area, people: rows, height: standardHeight(rows) }))
+    groups.filter(([area]) => !ordered.includes(area)).forEach(([area, rows]) => blocks.push({ type: 'standard', area, people: rows, height: standardHeight(area, rows) }))
 
     const columns = [0, 0, 0]
     blocks.forEach((block) => { const index = columns.indexOf(Math.min(...columns)); columns[index] += block.height + 18 })
