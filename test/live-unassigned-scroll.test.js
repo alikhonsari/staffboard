@@ -10,9 +10,9 @@ const viteSource = fs.readFileSync(new URL('../vite.config.js', import.meta.url)
 
 test('only the live Unassigned area receives scroll classes', () => {
   const output = injectLiveUnassignedScroll(appSource)
-  assert.match(output, /area\.name === "Unassigned" \? "live-unassigned-scroll" : ""/)
-  assert.match(output, /area\.name === "Unassigned" \? "live-unassigned-scroll-body" : ""/)
-  assert.doesNotMatch(output, /area\.name !== "Unassigned"/)
+  assert.ok(output.includes('area.name === "Unassigned" ? "live-unassigned-scroll" : ""'))
+  assert.ok(output.includes('area.name === "Unassigned" ? "live-unassigned-scroll-body" : ""'))
+  assert.equal(output.includes('area.name !== "Unassigned"'), false)
 })
 
 test('Unassigned scroll styling is isolated in an additive stylesheet', () => {
@@ -20,6 +20,7 @@ test('Unassigned scroll styling is isolated in an additive stylesheet', () => {
   assert.match(cssSource, /max-height:\s*680px/)
   assert.match(cssSource, /\.live-unassigned-scroll-body\s*\{/)
   assert.match(cssSource, /overflow-y:\s*auto/)
+  assert.match(cssSource, /overflow-x:\s*hidden/)
   assert.match(cssSource, /overscroll-behavior:\s*contain/)
   assert.match(cssSource, /position:\s*sticky/)
   assert.match(mainSource, /import '\.\/live-unassigned-scroll\.css'/)
