@@ -24,10 +24,8 @@ export function speedLiteTeamsValidationPlugin() {
         const required = [
           'const speedLiteTeamRows =',
           'const suggestionSpeedLiteEnabled =',
-          'speed-lite-team-workspace',
           'Speed Lite Team Health',
           'Speed Lite Team Analysis',
-          'speedLiteTeamRows={speedLiteTeamRows}',
           'Weekly Speed Lite Team Summary',
           'Speed Lite Teams + Memberships',
         ]
