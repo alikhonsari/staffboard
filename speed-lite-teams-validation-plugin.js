@@ -18,7 +18,7 @@ function writeDiagnostic(scope, required, missing, extra = {}) {
 export function speedLiteTeamsValidationPlugin() {
   return {
     name: 'staffboard-speed-lite-teams-validation',
-    enforce: 'pre',
+    enforce: 'post',
     transform(code, id) {
       if (id.endsWith('/src/App.jsx')) {
         const required = [
