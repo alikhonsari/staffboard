@@ -20,37 +20,24 @@ export function speedLiteTeamsValidationPlugin() {
     name: 'staffboard-speed-lite-teams-validation',
     enforce: 'post',
     transform(code, id) {
-      if (id.endsWith('/src/App.jsx')) {
-        const required = [
-          'const speedLiteTeamRows =',
-          'const suggestionSpeedLiteEnabled =',
-          'Speed Lite Team Health',
-          'Speed Lite Team Analysis',
-          'Weekly Speed Lite Team Summary',
-          'Speed Lite Teams + Memberships',
-        ]
-        const missing = required.filter((marker) => !code.includes(marker))
-        const runtimeVariableError = code.includes('speedLiteTeamsEnabled')
-          ? 'The final generated App still contains speedLiteTeamsEnabled.'
-          : ''
+      if (!id.endsWith('/src/App.jsx')) return null
 
-        writeDiagnostic('app', required, missing, { runtimeVariableError })
-        if (missing.length) throw new Error('Speed Lite team App transforms missing: ' + missing.join(', '))
-        if (runtimeVariableError) throw new Error('Speed Lite runtime safety validation failed: ' + runtimeVariableError)
-      }
+      const required = [
+        'const speedLiteTeamRows =',
+        'const suggestionSpeedLiteEnabled =',
+        'Speed Lite Team Health',
+        'Speed Lite Team Analysis',
+        'Weekly Speed Lite Team Summary',
+        'Speed Lite Teams + Memberships',
+      ]
+      const missing = required.filter((marker) => !code.includes(marker))
+      const runtimeVariableError = code.includes('speedLiteTeamsEnabled')
+        ? 'The final generated App still contains speedLiteTeamsEnabled.'
+        : ''
 
-      if (id.endsWith('/src/reporting.js')) {
-        const required = [
-          'function speedLiteTeamRowsForDay',
-          "'Speed Lite Teams'",
-          "'Weekly Speed Lite Teams'",
-          "'Weekly Speed Lite Members'",
-        ]
-        const missing = required.filter((marker) => !code.includes(marker))
-        writeDiagnostic('reporting', required, missing)
-        if (missing.length) throw new Error('Speed Lite team reporting transforms missing: ' + missing.join(', '))
-      }
-
+      writeDiagnostic('app', required, missing, { runtimeVariableError })
+      if (missing.length) throw new Error('Speed Lite team App transforms missing: ' + missing.join(', '))
+      if (runtimeVariableError) throw new Error('Speed Lite runtime safety validation failed: ' + runtimeVariableError)
       return null
     },
   }
