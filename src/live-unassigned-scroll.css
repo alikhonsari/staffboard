@@ -1,0 +1,31 @@
+.live-unassigned-scroll {
+  max-height: 680px;
+  display: flex;
+  flex-direction: column;
+}
+
+.live-unassigned-scroll > .area-head {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.live-unassigned-scroll-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.live-unassigned-scroll-body::-webkit-scrollbar {
+  width: 10px;
+}
+
+.live-unassigned-scroll-body::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
