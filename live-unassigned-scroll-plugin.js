@@ -1,5 +1,6 @@
 const AREA_CLASS = 'className={`area ${people.length > 0 ? "area-active" : "area-idle"}`}'
 const BODY_CLASS = '<div className="area-body">'
+const BODY_REPLACEMENT = '<div className={`area-body ${area.name === "Unassigned" ? "live-unassigned-scroll-body" : ""}`}>'
 
 export function injectLiveUnassignedScroll(source) {
   if (source.includes('live-unassigned-scroll')) return source
@@ -14,7 +15,7 @@ export function injectLiveUnassignedScroll(source) {
   const bodyIndex = output.indexOf(BODY_CLASS, areaMapIndex)
   if (areaMapIndex < 0 || bodyIndex < 0) throw new Error('Live Unassigned scroll transform could not locate area body.')
 
-  output = `${output.slice(0, bodyIndex)}<div className={`area-body ${area.name === "Unassigned" ? "live-unassigned-scroll-body" : ""}`}>${output.slice(bodyIndex + BODY_CLASS.length)}`
+  output = output.slice(0, bodyIndex) + BODY_REPLACEMENT + output.slice(bodyIndex + BODY_CLASS.length)
   return output
 }
 

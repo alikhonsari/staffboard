@@ -38,10 +38,11 @@ test('state reads allow enough time for the restored large PostgreSQL document',
   assert.match(output, /still loading the saved PostgreSQL data/)
 })
 
-test('startup hydration and live-state sharing run before App save hardening', () => {
+test('startup hydration, live-state sharing, Unassigned scrolling, and save hardening run before later App transforms', () => {
   assert.match(viteSource, /startupHydrationPlugin/)
   assert.match(viteSource, /liveShareStatePlugin/)
-  assert.match(viteSource, /requestTimeoutPlugin\(\), startupHydrationPlugin\(\), liveShareStatePlugin\(\), postgresStateSavePlugin\(\)/)
+  assert.match(viteSource, /liveUnassignedScrollPlugin/)
+  assert.match(viteSource, /requestTimeoutPlugin\(\), startupHydrationPlugin\(\), liveShareStatePlugin\(\), liveUnassignedScrollPlugin\(\), postgresStateSavePlugin\(\)/)
 })
 
 test('startup hydration transform is idempotent', () => {

@@ -29,9 +29,10 @@ test('save failures display the actual server error instead of Save pending', ()
   assert.doesNotMatch(transformed, /setSyncStatus\('Save pending'\)/)
 })
 
-test('startup hydration, live sharing, and PostgreSQL save hardening run before later App transforms', () => {
+test('startup hydration, live sharing, Unassigned scrolling, and PostgreSQL save hardening run before later App transforms', () => {
   assert.match(vite, /startupHydrationPlugin/)
   assert.match(vite, /liveShareStatePlugin/)
+  assert.match(vite, /liveUnassignedScrollPlugin/)
   assert.match(vite, /postgresStateSavePlugin/)
-  assert.match(vite, /requestTimeoutPlugin\(\), startupHydrationPlugin\(\), liveShareStatePlugin\(\), postgresStateSavePlugin\(\)/)
+  assert.match(vite, /requestTimeoutPlugin\(\), startupHydrationPlugin\(\), liveShareStatePlugin\(\), liveUnassignedScrollPlugin\(\), postgresStateSavePlugin\(\)/)
 })
