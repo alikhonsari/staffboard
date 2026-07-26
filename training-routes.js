@@ -15,6 +15,10 @@ import {
   syncTrainingBuildersSafe,
   updateManualTrainingBuilder,
 } from './training-builder-store.js'
+import {
+  importTrainingMatrixCsv,
+  trainingSnapshotToMatrixCsv,
+} from './training-matrix-import.js'
 
 const installedApps = new WeakSet()
 const clean = (value) => String(value ?? '').trim()
@@ -64,31 +68,6 @@ function requireRole(roles) {
 
 const actor = (req) => clean(req.user?.username || 'unknown')
 
-function csvValue(value) {
-  const text = String(value ?? '')
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
-}
-
-function snapshotToCsv(snapshot) {
-  const builders = new Map(snapshot.builders.map((builder) => [builder.id, builder]))
-  const catalog = new Map(snapshot.catalog.map((path) => [path.id, path]))
-  const headers = [
-    'Builder', 'Builder ID', 'Badge ID', 'Shift', 'Department', 'Training Path', 'Category', 'Status',
-    'Completion Date', 'Expiration Date', 'Trainer', 'Certificate Number', 'Assessment Score', 'Notes', 'Updated By', 'Updated At',
-  ]
-  const rows = snapshot.qualifications.map((qualification) => {
-    const builder = builders.get(qualification.builderId) || {}
-    const path = catalog.get(qualification.trainingId) || {}
-    return [
-      builder.name, builder.id, builder.badgeId, builder.currentShift, builder.department, path.name, path.category,
-      qualification.status, qualification.completionDate, qualification.expirationDate, qualification.trainerName,
-      qualification.certificateNumber, qualification.assessmentScore ?? '', qualification.notes,
-      qualification.updatedBy, qualification.updatedAt,
-    ]
-  })
-  return [headers, ...rows].map((row) => row.map(csvValue).join(',')).join('\n')
-}
-
 export function installTrainingRoutes(app, options = {}) {
   if (installedApps.has(app)) return
   installedApps.add(app)
@@ -118,6 +97,17 @@ export function installTrainingRoutes(app, options = {}) {
     } catch (error) {
       console.error('Training snapshot failed:', error)
       return res.status(503).json({ error: error.message || 'Failed to load Training data.' })
+    }
+  })
+
+  app.post('/api/training/import-matrix', requireTrainingAuth, requireAdmin, async (req, res) => {
+    try {
+      const csvText = String(req.body?.csvText || '')
+      if (!csvText.trim()) return res.status(400).json({ error: 'A Training matrix CSV is required.' })
+      return res.json(await importTrainingMatrixCsv(csvText, actor(req)))
+    } catch (error) {
+      console.error('Training matrix import failed:', error)
+      return res.status(400).json({ error: error.message || 'Failed to import the Training matrix.' })
     }
   })
 
@@ -212,9 +202,9 @@ export function installTrainingRoutes(app, options = {}) {
   app.get('/api/training/export.csv', requireTrainingAuth, async (req, res) => {
     try {
       const snapshot = await enrichTrainingSnapshot(await listTrainingSnapshot({ historyLimit: 1 }))
-      const csv = snapshotToCsv(snapshot)
+      const csv = trainingSnapshotToMatrixCsv(snapshot)
       res.setHeader('content-type', 'text/csv; charset=utf-8')
-      res.setHeader('content-disposition', `attachment; filename="staffboard-training-${new Date().toISOString().slice(0, 10)}.csv"`)
+      res.setHeader('content-disposition', `attachment; filename="staffboard-training-matrix-${new Date().toISOString().slice(0, 10)}.csv"`)
       return res.send(csv)
     } catch (error) {
       return res.status(503).json({ error: error.message || 'Failed to export Training data.' })
