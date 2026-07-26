@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react'
 import { SIMPLE_RESULT_META } from './builderSkillsCore'
+import './simple-training-grid.css'
 
 function cellTitle(summary, row) {
   return [
