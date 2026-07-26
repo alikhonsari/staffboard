@@ -32,6 +32,14 @@ export function loadTrainingSnapshot() {
   return request('/api/training')
 }
 
+export function importTrainingMatrixCsv(csvText) {
+  return request('/api/training/import-matrix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ csvText }),
+  })
+}
+
 export function syncTrainingBuilders(builders) {
   return request('/api/training/builders/sync', {
     method: 'POST',
@@ -120,7 +128,7 @@ export async function downloadTrainingCsv() {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `staffboard-training-${new Date().toISOString().slice(0, 10)}.csv`
+  anchor.download = `staffboard-training-matrix-${new Date().toISOString().slice(0, 10)}.csv`
   anchor.click()
   URL.revokeObjectURL(url)
 }
