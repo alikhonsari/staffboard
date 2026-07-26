@@ -12,6 +12,8 @@ import { logEvent } from './platform/logger.js'
 import { safeConfigSummary, validateEnvironment } from './platform/config.js'
 import { installStatusSaveHotfix, wrapFastStateGet, wrapFastStateSave } from './status-save-hotfix.js'
 import { installProtectedStatusGate } from './protected-status-gate.js'
+import { installTrainingRoutes } from './training-routes.js'
+import { closeTrainingStore } from './training-store.js'
 
 const originalUse = express.application.use
 const originalGet = express.application.get
@@ -25,6 +27,10 @@ function installPlatform(app) {
   })
 }
 
+function installTraining(app) {
+  installTrainingRoutes(app, { authSecret: config.authSecret, authToken: config.authToken })
+}
+
 function patchRoute(method, original) {
   express.application[method] = function patchedRoute(path, ...handlers) {
     if (String(path).startsWith('/api/')) {
@@ -34,6 +40,7 @@ function patchRoute(method, original) {
       installGuardedRoutes(this)
       installRecoveryRoutes(this)
       installRecoveryStatusRoute(this)
+      installTraining(this)
     }
     if (path === '/api/state' && handlers.length) {
       const index = handlers.length - 1
@@ -73,6 +80,7 @@ express.application.listen = function guardedListen(...args) {
     timeout.unref?.()
     try {
       await runtime.queue.catch(() => {})
+      await closeTrainingStore().catch((error) => logEvent('warn', 'training_store_shutdown_failed', { error: error.message }))
       clearTimeout(timeout)
       logEvent('info', 'shutdown_complete', { signal })
       process.exit(0)
