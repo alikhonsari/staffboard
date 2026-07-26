@@ -19,6 +19,7 @@ const WORKSPACE_HIRE_DATE_MARKER = `      <label>Hire date<input type="date" val
 const WORKSPACE_READONLY_MARKER = "<dt>Trainer</dt><dd>{readOnlyDetails.trainerName || '—'}</dd><dt>Notes</dt>"
 
 export function injectSimplifiedWorkspacePolish(source) {
+  if (source.includes('data-training-workspace-version="2"')) return source
   if (source.includes('View-only access: you can view the Training grid and details')) return source
   const required = [WORKSPACE_ERROR_GUIDE_MARKER, WORKSPACE_IMPORT_MARKER, WORKSPACE_HIRE_DATE_MARKER, WORKSPACE_READONLY_MARKER]
   const missing = required.filter((marker) => !source.includes(marker))
