@@ -1,7 +1,14 @@
-export const GRID_RESULTS = ['Trained', 'Not Trained', 'In Training', 'Trainer', 'Expired', 'Suspended']
+export const GRID_RESULTS = ['Trained', 'In Training', 'Not Trained']
 
-const QUALIFIED_GRID_RESULTS = new Set(['Trained', 'Trainer'])
-const DEMOTION_GRID_RESULTS = new Set(['Not Trained', 'Expired', 'Suspended'])
+const QUALIFIED_GRID_RESULTS = new Set(['Trained'])
+const DEMOTION_GRID_RESULTS = new Set(['Not Trained'])
+
+export function normalizeGridResult(result) {
+  const value = String(result || '').trim()
+  if (value === 'In Training') return 'In Training'
+  if (['Trained', 'Trainer', 'Qualified', 'Cross-Trained'].includes(value)) return 'Trained'
+  return 'Not Trained'
+}
 
 export function gridCellKey(builderId, trainingId) {
   return `${String(builderId || '')}::${String(trainingId || '')}`
@@ -18,5 +25,5 @@ export function parseGridCellKey(key) {
 }
 
 export function shouldConfirmGridTransition(previousResult, nextResult) {
-  return QUALIFIED_GRID_RESULTS.has(String(previousResult || '')) && DEMOTION_GRID_RESULTS.has(String(nextResult || ''))
+  return QUALIFIED_GRID_RESULTS.has(normalizeGridResult(previousResult)) && DEMOTION_GRID_RESULTS.has(normalizeGridResult(nextResult))
 }
