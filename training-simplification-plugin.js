@@ -9,7 +9,6 @@ const HEADER_MARKER = `    <div className="board-header training-header">
       </div>
       <div className="chiprow"><span className="pill">Normalized PostgreSQL</span><span className="pill">Updated by {currentUser || 'StaffBoard'}</span></div>
     </div>`
-const DETAILS_NOTES_MARKER = "</label></div><label>Notes<textarea value={qualificationDraft.notes || ''}"
 
 const WORKSPACE_ERROR_GUIDE_MARKER = `    {error ? <div className="training-message training-message-error">{error}</div> : null}
 
@@ -43,7 +42,7 @@ export function injectSimplifiedWorkspacePolish(source) {
 
 export function injectTrainingSimplification(source) {
   if (source.includes("import SimplifiedTrainingWorkspace from './SimplifiedTrainingWorkspace'")) return source
-  const required = [IMPORT_MARKER, VIEW_MARKER, RENDER_MARKER, TOOLBAR_RENDER, HEADER_MARKER, DETAILS_NOTES_MARKER]
+  const required = [IMPORT_MARKER, VIEW_MARKER, RENDER_MARKER, TOOLBAR_RENDER, HEADER_MARKER]
   const missing = required.filter((marker) => !source.includes(marker))
   if (missing.length) throw new Error(`Training simplification transform markers missing: ${missing.join(' | ')}`)
 
@@ -91,10 +90,6 @@ export function injectTrainingSimplification(source) {
     /> : null}
 
 ${RENDER_MARKER}`)
-  output = output.replace(
-    DETAILS_NOTES_MARKER,
-    "</label></div><label>Certificate URL<input type=\"url\" value={qualificationDraft.certificateFileUrl || ''} onChange={(event) => setQualificationDraft((previous) => ({ ...previous, certificateFileUrl: event.target.value }))} placeholder=\"https://…\" /></label><label>Notes<textarea value={qualificationDraft.notes || ''}",
-  )
   return output
 }
 
