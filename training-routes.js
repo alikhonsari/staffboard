@@ -4,11 +4,17 @@ import {
   bulkUpsertQualifications,
   createTrainingPath,
   listTrainingSnapshot,
-  syncTrainingBuilders,
   trainingHealth,
   updateTrainingPath,
   upsertQualification,
 } from './training-store.js'
+import {
+  createManualTrainingBuilder,
+  enrichTrainingSnapshot,
+  reorderTrainingCatalog,
+  syncTrainingBuildersSafe,
+  updateManualTrainingBuilder,
+} from './training-builder-store.js'
 
 const installedApps = new WeakSet()
 const clean = (value) => String(value ?? '').trim()
@@ -101,11 +107,13 @@ export function installTrainingRoutes(app, options = {}) {
 
   app.get('/api/training', requireTrainingAuth, async (req, res) => {
     try {
-      const snapshot = await listTrainingSnapshot({ historyLimit: req.query.historyLimit })
+      const baseSnapshot = await listTrainingSnapshot({ historyLimit: req.query.historyLimit })
+      const snapshot = await enrichTrainingSnapshot(baseSnapshot)
       return res.json({ ...snapshot, permissions: {
         canView: true,
         canEditQualifications: editorRoles.has(clean(req.user?.role).toLowerCase()),
         canManageCatalog: adminRoles.has(clean(req.user?.role).toLowerCase()),
+        canManageBuilders: adminRoles.has(clean(req.user?.role).toLowerCase()),
       } })
     } catch (error) {
       console.error('Training snapshot failed:', error)
@@ -115,11 +123,29 @@ export function installTrainingRoutes(app, options = {}) {
 
   app.post('/api/training/builders/sync', requireTrainingAuth, requireEditor, async (req, res) => {
     try {
-      const result = await syncTrainingBuilders(req.body?.builders || [])
+      const result = await syncTrainingBuildersSafe(req.body?.builders || [])
       return res.json(result)
     } catch (error) {
       console.error('Training builder sync failed:', error)
       return res.status(400).json({ error: error.message || 'Failed to sync builders.' })
+    }
+  })
+
+  app.post('/api/training/builders', requireTrainingAuth, requireAdmin, async (req, res) => {
+    try {
+      return res.status(201).json(await createManualTrainingBuilder(req.body || {}))
+    } catch (error) {
+      const duplicate = String(error.message || '').toLowerCase().includes('already exists')
+      return res.status(duplicate ? 409 : 400).json({ error: error.message || 'Failed to add Training builder.' })
+    }
+  })
+
+  app.patch('/api/training/builders/:id', requireTrainingAuth, requireAdmin, async (req, res) => {
+    try {
+      return res.json(await updateManualTrainingBuilder(req.params.id, req.body || {}))
+    } catch (error) {
+      const duplicate = String(error.message || '').toLowerCase().includes('already exists')
+      return res.status(duplicate ? 409 : 400).json({ error: error.message || 'Failed to update Training builder.' })
     }
   })
 
@@ -137,6 +163,14 @@ export function installTrainingRoutes(app, options = {}) {
       return res.json(await updateTrainingPath(req.params.id, req.body || {}, actor(req)))
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Failed to update training path.' })
+    }
+  })
+
+  app.post('/api/training/catalog/reorder', requireTrainingAuth, requireAdmin, async (req, res) => {
+    try {
+      return res.json(await reorderTrainingCatalog(req.body?.orderedIds || []))
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Failed to reorder training paths.' })
     }
   })
 
@@ -177,7 +211,7 @@ export function installTrainingRoutes(app, options = {}) {
 
   app.get('/api/training/export.csv', requireTrainingAuth, async (req, res) => {
     try {
-      const snapshot = await listTrainingSnapshot({ historyLimit: 1 })
+      const snapshot = await enrichTrainingSnapshot(await listTrainingSnapshot({ historyLimit: 1 }))
       const csv = snapshotToCsv(snapshot)
       res.setHeader('content-type', 'text/csv; charset=utf-8')
       res.setHeader('content-disposition', `attachment; filename="staffboard-training-${new Date().toISOString().slice(0, 10)}.csv"`)
