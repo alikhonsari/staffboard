@@ -9,10 +9,41 @@ const HEADER_MARKER = `    <div className="board-header training-header">
       </div>
       <div className="chiprow"><span className="pill">Normalized PostgreSQL</span><span className="pill">Updated by {currentUser || 'StaffBoard'}</span></div>
     </div>`
+const DETAILS_NOTES_MARKER = "</label></div><label>Notes<textarea value={qualificationDraft.notes || ''}"
+
+const WORKSPACE_ERROR_GUIDE_MARKER = `    {error ? <div className="training-message training-message-error">{error}</div> : null}
+
+    {showGuide ? <div className="training-simple-guide">`
+const WORKSPACE_IMPORT_MARKER = '{canEdit ? <button onClick={onImport}>Import CSV</button> : null}'
+const WORKSPACE_HIRE_DATE_MARKER = `      <label>Hire date<input type="date" value={builderDraft.hireDate || ''} onChange={(event) => setBuilderDraft((current) => ({ ...current, hireDate: event.target.value }))} /></label>
+`
+const WORKSPACE_READONLY_MARKER = "<dt>Trainer</dt><dd>{readOnlyDetails.trainerName || '—'}</dd><dt>Notes</dt>"
+
+export function injectSimplifiedWorkspacePolish(source) {
+  if (source.includes('View-only access: you can view the Training grid and details')) return source
+  const required = [WORKSPACE_ERROR_GUIDE_MARKER, WORKSPACE_IMPORT_MARKER, WORKSPACE_HIRE_DATE_MARKER, WORKSPACE_READONLY_MARKER]
+  const missing = required.filter((marker) => !source.includes(marker))
+  if (missing.length) throw new Error(`Simplified Training workspace markers missing: ${missing.join(' | ')}`)
+
+  let output = source.replace(
+    WORKSPACE_ERROR_GUIDE_MARKER,
+    `    {error ? <div className="training-message training-message-error">{error}</div> : null}
+    {!canEdit ? <div className="training-message training-message-error" role="status">View-only access: you can view the Training grid and details, but cannot change cells, builders, or paths.</div> : null}
+
+    {showGuide && canManageBuilders ? <div className="training-simple-guide">`,
+  )
+  output = output.replace(WORKSPACE_IMPORT_MARKER, '{canManageBuilders ? <button onClick={onImport}>Import CSV</button> : null}')
+  output = output.replace(WORKSPACE_HIRE_DATE_MARKER, '')
+  output = output.replace(
+    WORKSPACE_READONLY_MARKER,
+    "<dt>Trainer</dt><dd>{readOnlyDetails.trainerName || '—'}</dd><dt>Certificate number</dt><dd>{readOnlyDetails.certificateNumber || '—'}</dd><dt>Certificate URL</dt><dd>{readOnlyDetails.certificateFileUrl ? <a href={readOnlyDetails.certificateFileUrl} target=\"_blank\" rel=\"noreferrer\">Open certificate</a> : '—'}</dd><dt>Assessment score</dt><dd>{readOnlyDetails.assessmentScore === '' || readOnlyDetails.assessmentScore == null ? '—' : readOnlyDetails.assessmentScore}</dd><dt>Notes</dt>",
+  )
+  return output
+}
 
 export function injectTrainingSimplification(source) {
   if (source.includes("import SimplifiedTrainingWorkspace from './SimplifiedTrainingWorkspace'")) return source
-  const required = [IMPORT_MARKER, VIEW_MARKER, RENDER_MARKER, TOOLBAR_RENDER, HEADER_MARKER]
+  const required = [IMPORT_MARKER, VIEW_MARKER, RENDER_MARKER, TOOLBAR_RENDER, HEADER_MARKER, DETAILS_NOTES_MARKER]
   const missing = required.filter((marker) => !source.includes(marker))
   if (missing.length) throw new Error(`Training simplification transform markers missing: ${missing.join(' | ')}`)
 
@@ -60,6 +91,10 @@ export function injectTrainingSimplification(source) {
     /> : null}
 
 ${RENDER_MARKER}`)
+  output = output.replace(
+    DETAILS_NOTES_MARKER,
+    "</label></div><label>Certificate URL<input type=\"url\" value={qualificationDraft.certificateFileUrl || ''} onChange={(event) => setQualificationDraft((previous) => ({ ...previous, certificateFileUrl: event.target.value }))} placeholder=\"https://…\" /></label><label>Notes<textarea value={qualificationDraft.notes || ''}",
+  )
   return output
 }
 
@@ -68,8 +103,9 @@ export function trainingSimplificationPlugin() {
     name: 'staffboard-training-simplification',
     enforce: 'pre',
     transform(source, id) {
-      if (!id.endsWith('/src/TrainingTab.jsx')) return null
-      return { code: injectTrainingSimplification(source), map: null }
+      if (id.endsWith('/src/TrainingTab.jsx')) return { code: injectTrainingSimplification(source), map: null }
+      if (id.endsWith('/src/SimplifiedTrainingWorkspace.jsx')) return { code: injectSimplifiedWorkspacePolish(source), map: null }
+      return null
     },
   }
 }
