@@ -122,7 +122,7 @@ test('permissions, onboarding, sticky grid, dark mode, responsive layout, and pr
 test('Open Details preserves certificate URL and read-only certification fields', () => {
   const trainingOutput = transformedTrainingTab()
   const workspace = transformedWorkspace()
-  assert.match(trainingOutput, /Certificate URL/)
+  assert.match(trainingOutput, /Certificate file URL/)
   assert.match(trainingOutput, /certificateFileUrl/)
   assert.match(workspace, /Certificate number/)
   assert.match(workspace, /Certificate URL/)
