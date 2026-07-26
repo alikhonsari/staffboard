@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { injectBuilderSkillsView } from '../builder-skills-view-plugin.js'
-import { injectTrainingSimplification } from '../training-simplification-plugin.js'
+import { injectSimplifiedWorkspacePolish, injectTrainingSimplification } from '../training-simplification-plugin.js'
 
 const trainingTabSource = fs.readFileSync(new URL('../src/TrainingTab.jsx', import.meta.url), 'utf8')
 const component = fs.readFileSync(new URL('../src/SimplifiedTrainingWorkspace.jsx', import.meta.url), 'utf8')
@@ -14,6 +14,10 @@ const vite = fs.readFileSync(new URL('../vite.config.js', import.meta.url), 'utf
 
 function transformedTrainingTab() {
   return injectTrainingSimplification(injectBuilderSkillsView(trainingTabSource))
+}
+
+function transformedWorkspace() {
+  return injectSimplifiedWorkspacePolish(component)
 }
 
 test('Training opens in the simplified workflow with only three primary tabs', () => {
@@ -86,23 +90,28 @@ test('Training Paths support minimal creation, advanced options, archive, restor
 })
 
 test('advanced features remain available under More rather than primary navigation', () => {
-  assert.match(component, />More ▾<\/button>/)
-  assert.match(component, /Dashboard/)
-  assert.match(component, /Area Coverage/)
-  assert.match(component, /Builder Profiles/)
-  assert.match(component, /Reports & History/)
-  assert.match(component, /Import CSV/)
+  const workspace = transformedWorkspace()
+  assert.match(workspace, />More ▾<\/button>/)
+  assert.match(workspace, /Dashboard/)
+  assert.match(workspace, /Area Coverage/)
+  assert.match(workspace, /Builder Profiles/)
+  assert.match(workspace, /Reports & History/)
+  assert.match(workspace, /Import CSV/)
+  assert.match(workspace, /canManageBuilders \? <button onClick=\{onImport\}>Import CSV/)
   const output = transformedTrainingTab()
   assert.match(output, /training-advanced-bar/)
   assert.match(output, /Legacy Builder Skills/)
 })
 
 test('permissions, onboarding, sticky grid, dark mode, responsive layout, and print remain supported', () => {
-  assert.match(component, /canManageBuilders/)
-  assert.match(component, /canManageCatalog/)
-  assert.match(component, /canEdit/)
-  assert.match(component, /Set up Training in three steps/)
-  assert.match(component, /View-only access/)
+  const workspace = transformedWorkspace()
+  assert.match(workspace, /canManageBuilders/)
+  assert.match(workspace, /canManageCatalog/)
+  assert.match(workspace, /canEdit/)
+  assert.match(workspace, /showGuide && canManageBuilders/)
+  assert.match(workspace, /View-only access: you can view the Training grid and details/)
+  assert.match(workspace, /View-only access/)
+  assert.doesNotMatch(workspace, /Hire date<input/)
   assert.match(css, /training-simple-grid thead th\{position:sticky;top:0/)
   assert.match(css, /training-simple-grid \.training-simple-builder-column\{position:sticky;left:0/)
   assert.match(css, /body\[data-theme="dark"\]/)
@@ -110,12 +119,25 @@ test('permissions, onboarding, sticky grid, dark mode, responsive layout, and pr
   assert.match(css, /@media print/)
 })
 
+test('Open Details preserves certificate URL and read-only certification fields', () => {
+  const trainingOutput = transformedTrainingTab()
+  const workspace = transformedWorkspace()
+  assert.match(trainingOutput, /Certificate URL/)
+  assert.match(trainingOutput, /certificateFileUrl/)
+  assert.match(workspace, /Certificate number/)
+  assert.match(workspace, /Certificate URL/)
+  assert.match(workspace, /Assessment score/)
+  assert.match(workspace, /Open certificate/)
+})
+
 test('Vite registers simplification after Builder Skills and Simple Grid transforms', () => {
   assert.match(vite, /trainingSimplificationPlugin/)
   assert.match(vite, /builderSkillsViewPlugin\(\), simpleTrainingGridPlugin\(\), trainingSimplificationPlugin\(\)/)
 })
 
-test('Training simplification transform is idempotent', () => {
-  const once = transformedTrainingTab()
-  assert.equal(injectTrainingSimplification(once), once)
+test('Training simplification transforms are idempotent', () => {
+  const trainingOnce = transformedTrainingTab()
+  const workspaceOnce = transformedWorkspace()
+  assert.equal(injectTrainingSimplification(trainingOnce), trainingOnce)
+  assert.equal(injectSimplifiedWorkspacePolish(workspaceOnce), workspaceOnce)
 })
