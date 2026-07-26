@@ -1,0 +1,33 @@
+.simple-training-grid-card{display:grid;gap:10px;min-width:0}
+.simple-training-grid-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface,#fff)}
+.simple-training-grid-legend{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.simple-training-grid-legend span{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:.68rem;font-weight:900}
+.simple-training-grid-wrap{max-height:72vh;overflow:auto;border:1px solid #aeb4bc;background:#fff}
+.simple-training-grid{border-collapse:separate;border-spacing:0;min-width:max-content;width:100%;font-size:.94rem}
+.simple-training-grid th,.simple-training-grid td{min-width:145px;height:42px;padding:0;border-right:1px solid #aeb4bc;border-bottom:1px solid #aeb4bc;background:#fff;text-align:left;vertical-align:middle}
+.simple-training-grid thead th{position:sticky;top:0;z-index:5;padding:7px 9px;background:#f5f5f5;font-size:1rem;font-weight:800;white-space:normal}
+.simple-training-grid .simple-training-builder-column{position:sticky;left:0;z-index:4;min-width:190px;background:#f7f7f7}
+.simple-training-grid thead .simple-training-builder-column{z-index:7}
+.simple-training-grid .simple-training-builder-column button{width:100%;height:100%;padding:7px 9px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;font-weight:800}
+.simple-training-grid td button{width:100%;height:100%;min-height:42px;padding:7px 9px;border:0;background:transparent;color:inherit;text-align:left;font:inherit;font-weight:700;white-space:normal}
+.simple-training-grid td button:not(:disabled),.simple-training-grid .simple-training-builder-column button{cursor:pointer}
+.simple-training-grid td button:hover:not(:disabled),.simple-training-grid .simple-training-builder-column button:hover{box-shadow:inset 0 0 0 2px var(--accent,#2563eb)}
+.simple-training-grid td button:disabled{cursor:default;opacity:1}
+.simple-training-grid td.training-result-trained{background:#e8f7ed;color:#176b37}
+.simple-training-grid td.training-result-not-trained{background:#fff;color:#222}
+.simple-training-grid td.training-result-in-training{background:#fff4cc;color:#7a5400}
+.simple-training-grid td.training-result-trainer{background:#efe7ff;color:#5b21b6}
+.simple-training-grid td.training-result-expired{background:#ffedd5;color:#b45309}
+.simple-training-grid td.training-result-suspended{background:#fee2e2;color:#b91c1c}
+.simple-training-grid td.training-result-inactive{background:#e5e7eb;color:#4b5563}
+body[data-theme="dark"] .simple-training-grid-heading,body[data-theme="dark"] .simple-training-grid-wrap,body[data-theme="dark"] .simple-training-grid th,body[data-theme="dark"] .simple-training-grid td{background:#0f172a;border-color:#475569}
+body[data-theme="dark"] .simple-training-grid thead th,body[data-theme="dark"] .simple-training-grid .simple-training-builder-column{background:#172238}
+body[data-theme="dark"] .simple-training-grid td.training-result-trained{background:#123d2a;color:#bbf7d0}
+body[data-theme="dark"] .simple-training-grid td.training-result-not-trained{background:#0f172a;color:#e2e8f0}
+body[data-theme="dark"] .simple-training-grid td.training-result-in-training{background:#493711;color:#fde68a}
+body[data-theme="dark"] .simple-training-grid td.training-result-trainer{background:#35245f;color:#ddd6fe}
+body[data-theme="dark"] .simple-training-grid td.training-result-expired{background:#4b2c13;color:#fed7aa}
+body[data-theme="dark"] .simple-training-grid td.training-result-suspended{background:#4c1d1d;color:#fecaca}
+body[data-theme="dark"] .simple-training-grid td.training-result-inactive{background:#263244;color:#cbd5e1}
+@media(max-width:640px){.simple-training-grid-heading{display:grid}.simple-training-grid-legend{justify-content:flex-start}.simple-training-grid th,.simple-training-grid td{min-width:125px}.simple-training-grid .simple-training-builder-column{min-width:155px}}
+@media print{body.training-print-active .simple-training-grid-wrap{max-height:none;overflow:visible;border:1px solid #777}body.training-print-active .simple-training-grid{font-size:7pt}body.training-print-active .simple-training-grid th,body.training-print-active .simple-training-grid td{position:static!important;min-width:0;height:auto;background:#fff!important;color:#000!important}body.training-print-active .simple-training-grid td button,body.training-print-active .simple-training-grid th button{padding:3px 4px}}
