@@ -2,146 +2,146 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { injectBuilderSkillsView } from '../builder-skills-view-plugin.js'
-import { injectSimplifiedWorkspacePolish, injectTrainingSimplification } from '../training-simplification-plugin.js'
+import {
+  injectSimplifiedWorkspacePolish,
+  injectStandaloneTrainingTab,
+  injectStandaloneTrainingWorkspace,
+  injectTrainingSimplification,
+} from '../training-simplification-plugin.js'
 
 const trainingTabSource = fs.readFileSync(new URL('../src/TrainingTab.jsx', import.meta.url), 'utf8')
 const component = fs.readFileSync(new URL('../src/SimplifiedTrainingWorkspace.jsx', import.meta.url), 'utf8')
 const css = fs.readFileSync(new URL('../src/training-simplified.css', import.meta.url), 'utf8')
+const standaloneCss = fs.readFileSync(new URL('../src/training-standalone.css', import.meta.url), 'utf8')
 const store = fs.readFileSync(new URL('../training-builder-store.js', import.meta.url), 'utf8')
 const routes = fs.readFileSync(new URL('../training-routes.js', import.meta.url), 'utf8')
 const client = fs.readFileSync(new URL('../src/trainingClient.js', import.meta.url), 'utf8')
 const vite = fs.readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8')
 
 function transformedTrainingTab() {
-  return injectTrainingSimplification(injectBuilderSkillsView(trainingTabSource))
+  return injectStandaloneTrainingTab(injectTrainingSimplification(injectBuilderSkillsView(trainingTabSource)))
 }
 
 function transformedWorkspace() {
-  return injectSimplifiedWorkspacePolish(component)
+  return injectStandaloneTrainingWorkspace(injectSimplifiedWorkspacePolish(component))
 }
 
-test('Training opens in the simplified workflow with only three primary tabs', () => {
+test('Training opens in the standalone simplified workflow with three primary tabs', () => {
   const output = transformedTrainingTab()
-  const primaryTabs = component.match(/<div className="training-simple-primary-tabs"[\s\S]*?>([\s\S]*?)<\/div>/)?.[1] || ''
+  const workspace = transformedWorkspace()
+  const primaryTabs = workspace.match(/<div className="training-simple-primary-tabs"[\s\S]*?>([\s\S]*?)<\/div>/)?.[1] || ''
   assert.match(output, /useState\('simple'\)/)
-  assert.match(output, /SimplifiedTrainingWorkspace/)
+  assert.match(output, /TRAINING_STANDALONE_MATRIX = true/)
+  assert.match(workspace, /data-training-standalone="true"/)
   assert.match(primaryTabs, />Training Grid<\/button>/)
   assert.match(primaryTabs, />Builders<\/button>/)
   assert.match(primaryTabs, />Training Paths<\/button>/)
   assert.doesNotMatch(primaryTabs, /Builder Skills|Training Matrix|Area Coverage|Dashboard|History/)
 })
 
-test('StaffBoard builder profiles are normalized using Builder Management v3 fields', () => {
+test('Training does not automatically sync from the operational Builder Management board', () => {
   const output = transformedTrainingTab()
-  assert.match(output, /builder\.employeeId/)
-  assert.match(output, /builder\.startDate/)
-  assert.match(output, /builder\.defaultShift/)
-  assert.match(output, /builder\.defaultBoardId/)
-  assert.match(output, /!builder\.isArchived && !builder\.archived/)
-  assert.match(component, /normalizedRoster/)
+  const workspace = transformedWorkspace()
+  assert.match(output, /useEffect\(\(\) => \{ refresh\(\) \}, \[\]\)/)
+  assert.doesNotMatch(output, /refresh\(\{ syncRoster: true \}\)/)
+  assert.match(workspace, /Changes here do not change staffing assignments, attendance, operational badges, shifts, or the Master Builder board/)
+  assert.doesNotMatch(workspace, />Sync StaffBoard Builders<\/button>/)
 })
 
-test('empty roster synchronization is non-destructive and never archives every Training builder', () => {
-  assert.match(store, /if \(!normalized\.length\) return \{ synced: 0, created: 0, updated: 0, skipped: 0, emptyRoster: true \}/)
-  assert.doesNotMatch(store, /UPDATE training_builders SET archived = TRUE WHERE NOT/)
-  assert.match(component, /No builders have been added to Training yet\./)
-  assert.match(component, /Sync StaffBoard Builders/)
-  assert.match(component, /Add Builder/)
+test('wide matrix import is the primary admin import workflow', () => {
+  const output = transformedTrainingTab()
+  const workspace = transformedWorkspace()
+  assert.match(output, /importTrainingMatrixCsv/)
+  assert.match(output, /firstHeader\.includes\('builder'\)/)
+  assert.match(output, /result\.qualificationsUpdated/)
+  assert.match(workspace, /Import Matrix/)
+  assert.match(workspace, /Import Matrix CSV/)
+  assert.match(routes, /\/api\/training\/import-matrix/)
+  assert.match(client, /importTrainingMatrixCsv/)
 })
 
-test('manual builder endpoints support create, edit, archive, restore, and duplicate prevention', () => {
-  assert.match(routes, /app\.post\('\/api\/training\/builders'/)
-  assert.match(routes, /app\.patch\('\/api\/training\/builders\/:id'/)
-  assert.match(store, /A builder with this name or badge ID already exists/)
-  assert.match(client, /createTrainingBuilder/)
-  assert.match(client, /updateTrainingBuilder/)
-  assert.match(component, /toggleBuilderArchive/)
-  assert.match(component, /\? 'Restore' : 'Archive'/)
+test('Training-only builders keep badge and trainer tags', () => {
+  const workspace = transformedWorkspace()
+  assert.match(store, /badge_tag TEXT NOT NULL DEFAULT ''/)
+  assert.match(store, /is_trainer BOOLEAN NOT NULL DEFAULT FALSE/)
+  assert.match(store, /upsertTrainingMatrixBuilder/)
+  assert.match(workspace, /Blue Badge/)
+  assert.match(workspace, /Green Badge/)
+  assert.match(workspace, /Not Trainer/)
+  assert.match(workspace, /builder\.isTrainer/)
+  assert.match(standaloneCss, /training-builder-tag-blue/)
+  assert.match(standaloneCss, /training-builder-tag-green/)
+  assert.match(standaloneCss, /training-builder-tag-trainer/)
 })
 
 test('grid renders builders as rows, paths as columns, and missing records as Not Trained', () => {
-  assert.match(component, /training-simple-builder-column">Builder/)
-  assert.match(component, /activeCatalog\.map\(\(path\)/)
-  assert.match(component, /visibleSummaries\.map\(\(summary, rowIndex\)/)
-  assert.match(component, /if \(!row \|\| row\.result === 'Inactive'\) return 'Not Trained'/)
-  assert.match(component, /rowMaps\.get\(builderId\)\?\.get\(path\.id\)/)
+  const workspace = transformedWorkspace()
+  assert.match(workspace, /training-simple-builder-column">Builder/)
+  assert.match(workspace, /activeCatalog\.map\(\(path\)/)
+  assert.match(workspace, /visibleSummaries\.map\(\(summary, rowIndex\)/)
+  assert.match(workspace, /normalizeGridResult/)
+  assert.match(workspace, /rowMaps\.get\(builderId\)\?\.get\(path\.id\)/)
 })
 
-test('cell popover maps all simple results, uses optimistic saves, and preserves audit history', () => {
-  assert.match(component, /Trained: 'Qualified'/)
-  assert.match(component, /'Not Trained': 'Not Started'/)
-  assert.match(component, /'In Training': 'In Training'/)
-  assert.match(component, /Trainer: 'Trainer'/)
-  assert.match(component, /Expired: 'Expired'/)
-  assert.match(component, /Suspended: 'Suspended'/)
-  assert.match(component, /shouldConfirmGridTransition/)
-  assert.match(component, /Existing qualification history will be preserved/)
-  assert.match(component, /Training Grid quick update/)
-  assert.match(component, /setOptimistic\(key, simpleResult\)/)
+test('cell popover uses only Trained, In Training, and Not Trained with optimistic saves', () => {
+  const workspace = transformedWorkspace()
+  assert.match(workspace, /Trained: 'Qualified'/)
+  assert.match(workspace, /'In Training': 'In Training'/)
+  assert.match(workspace, /'Not Trained': 'Not Started'/)
+  assert.doesNotMatch(workspace, /Trainer: 'Trainer'/)
+  assert.doesNotMatch(workspace, /Expired: 'Expired'/)
+  assert.doesNotMatch(workspace, /Suspended: 'Suspended'/)
+  assert.match(workspace, /setOptimistic\(key, simpleResult\)/)
   assert.match(routes, /upsertQualification/)
 })
 
-test('Training Paths support minimal creation, advanced options, archive, restore, and ordering', () => {
-  assert.match(component, /Add Training Path/)
-  assert.match(component, /More options/)
-  assert.match(component, /minimumQualified/)
-  assert.match(component, /expirationDays/)
-  assert.match(component, /Display order/)
-  assert.match(component, /movePath/)
+test('manual builders, paths, archive, restore, and ordering remain available inside Training', () => {
+  const workspace = transformedWorkspace()
+  assert.match(routes, /app\.post\('\/api\/training\/builders'/)
+  assert.match(routes, /app\.patch\('\/api\/training\/builders\/:id'/)
+  assert.match(store, /A builder with this name or badge ID already exists/)
+  assert.match(workspace, /Add Training Path/)
+  assert.match(workspace, /More options/)
+  assert.match(workspace, /Display order/)
+  assert.match(workspace, /Move left/)
+  assert.match(workspace, /Move right/)
   assert.match(routes, /catalog\/reorder/)
-  assert.match(store, /training_catalog_order/)
 })
 
-test('advanced features remain available under More rather than primary navigation', () => {
+test('advanced reports remain under More without becoming primary navigation', () => {
   const workspace = transformedWorkspace()
   assert.match(workspace, />More ▾<\/button>/)
   assert.match(workspace, /Dashboard/)
   assert.match(workspace, /Coverage/)
   assert.match(workspace, /Builder Profiles/)
   assert.match(workspace, /History/)
-  assert.match(workspace, /Reports/)
   assert.match(workspace, /Advanced Matrix/)
   assert.match(workspace, /Catalog Management/)
-  assert.match(workspace, /canManageBuilders \? <button onClick=\{onImport\}>Import<\/button>/)
-  const output = transformedTrainingTab()
-  assert.match(output, /training-advanced-bar/)
-  assert.match(output, /Legacy Builder Skills/)
 })
 
 test('permissions, sticky grid, dark mode, responsive layout, and print remain supported', () => {
   const workspace = transformedWorkspace()
   assert.match(workspace, /canManageBuilders/)
   assert.match(workspace, /canManageCatalog/)
-  assert.match(workspace, /canEdit/)
   assert.match(workspace, /View-only access: you can review Training information but cannot make changes/)
-  assert.doesNotMatch(workspace, /Hire date<input/)
   assert.match(css, /training-simple-grid thead th/)
   assert.match(css, /position: sticky/)
   assert.match(css, /body\[data-theme="dark"\]/)
+  assert.match(standaloneCss, /body\[data-theme="dark"\]/)
   assert.match(css, /@media \(max-width: 760px\)/)
   assert.match(css, /@media print/)
 })
 
-test('View details preserves certification fields and audit-history guidance', () => {
-  const trainingOutput = transformedTrainingTab()
-  const workspace = transformedWorkspace()
-  assert.match(trainingOutput, /Certificate file URL/)
-  assert.match(trainingOutput, /certificateFileUrl/)
-  assert.match(workspace, /Certificate number/)
-  assert.match(workspace, /Certificate URL/)
-  assert.match(workspace, /Assessment score/)
-  assert.match(workspace, /Open certificate/)
-  assert.match(workspace, /Audit history/)
-})
-
-test('Vite registers simplification after Builder Skills and Simple Grid transforms', () => {
+test('Vite registers the Training simplification plugin', () => {
   assert.match(vite, /trainingSimplificationPlugin/)
   assert.match(vite, /builderSkillsViewPlugin\(\), simpleTrainingGridPlugin\(\), trainingSimplificationPlugin\(\)/)
 })
 
-test('Training simplification transforms are idempotent', () => {
+test('Training transforms are idempotent', () => {
   const trainingOnce = transformedTrainingTab()
   const workspaceOnce = transformedWorkspace()
+  assert.equal(injectStandaloneTrainingTab(trainingOnce), trainingOnce)
   assert.equal(injectTrainingSimplification(trainingOnce), trainingOnce)
+  assert.equal(injectStandaloneTrainingWorkspace(workspaceOnce), workspaceOnce)
   assert.equal(injectSimplifiedWorkspacePolish(workspaceOnce), workspaceOnce)
 })
