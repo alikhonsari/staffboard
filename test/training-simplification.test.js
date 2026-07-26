@@ -18,12 +18,13 @@ function transformedTrainingTab() {
 
 test('Training opens in the simplified workflow with only three primary tabs', () => {
   const output = transformedTrainingTab()
+  const primaryTabs = component.match(/<div className="training-simple-primary-tabs">([\s\S]*?)<\/div>/)?.[1] || ''
   assert.match(output, /useState\('simple'\)/)
   assert.match(output, /SimplifiedTrainingWorkspace/)
-  assert.match(component, />Training Grid<\/button>/)
-  assert.match(component, />Builders<\/button>/)
-  assert.match(component, />Training Paths<\/button>/)
-  assert.doesNotMatch(component, /Builder Skills<\/button>|Training Matrix<\/button>|Area Coverage<\/button>/)
+  assert.match(primaryTabs, />Training Grid<\/button>/)
+  assert.match(primaryTabs, />Builders<\/button>/)
+  assert.match(primaryTabs, />Training Paths<\/button>/)
+  assert.doesNotMatch(primaryTabs, /Builder Skills|Training Matrix|Area Coverage|Dashboard|History/)
 })
 
 test('StaffBoard builder profiles are normalized using Builder Management v3 fields', () => {
