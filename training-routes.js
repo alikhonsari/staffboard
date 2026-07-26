@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import express from 'express'
 import {
   addTrainingNote,
   bulkUpsertQualifications,
@@ -22,6 +23,7 @@ import {
 
 const installedApps = new WeakSet()
 const clean = (value) => String(value ?? '').trim()
+const TRAINING_JSON_LIMIT = clean(process.env.STAFFBOARD_TRAINING_JSON_LIMIT || '8mb') || '8mb'
 const readerRoles = new Set(['admin', 'manager', 'system', 'readonly', 'read-only', 'viewer'])
 const editorRoles = new Set(['admin', 'manager', 'system'])
 const adminRoles = new Set(['admin', 'system'])
@@ -71,6 +73,11 @@ const actor = (req) => clean(req.user?.username || 'unknown')
 export function installTrainingRoutes(app, options = {}) {
   if (installedApps.has(app)) return
   installedApps.add(app)
+
+  // Guarded production startup can register Training routes before server.js mounts
+  // its global JSON parser. Keep Training request parsing local and ordered before
+  // every Training endpoint so matrix imports and all other mutations receive req.body.
+  app.use('/api/training', express.json({ limit: TRAINING_JSON_LIMIT }))
 
   const requireTrainingAuth = makeAuth({
     authSecret: options.authSecret || 'staffboard-dev-secret',
