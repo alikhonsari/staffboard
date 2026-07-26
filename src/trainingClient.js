@@ -40,6 +40,22 @@ export function syncTrainingBuilders(builders) {
   })
 }
 
+export function createTrainingBuilder(input) {
+  return request('/api/training/builders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateTrainingBuilder(id, input) {
+  return request(`/api/training/builders/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+}
+
 export function createTrainingPath(input) {
   return request('/api/training/catalog', {
     method: 'POST',
@@ -53,6 +69,14 @@ export function updateTrainingPath(id, input) {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+  })
+}
+
+export function reorderTrainingPaths(orderedIds) {
+  return request('/api/training/catalog/reorder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderedIds }),
   })
 }
 
