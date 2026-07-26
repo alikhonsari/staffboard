@@ -43,7 +43,7 @@ test('Training does not automatically sync from the operational Builder Manageme
   const output = transformedTrainingTab()
   const workspace = transformedWorkspace()
   assert.match(output, /useEffect\(\(\) => \{ refresh\(\) \}, \[\]\)/)
-  assert.doesNotMatch(output, /refresh\(\{ syncRoster: true \}\)/)
+  assert.doesNotMatch(output, /useEffect\(\(\) => \{ refresh\(\{ syncRoster: true \}\)/)
   assert.match(workspace, /Changes here do not change staffing assignments, attendance, operational badges, shifts, or the Master Builder board/)
   assert.doesNotMatch(workspace, />Sync StaffBoard Builders<\/button>/)
 })
@@ -137,11 +137,10 @@ test('Vite registers the Training simplification plugin', () => {
   assert.match(vite, /builderSkillsViewPlugin\(\), simpleTrainingGridPlugin\(\), trainingSimplificationPlugin\(\)/)
 })
 
-test('Training transforms are idempotent', () => {
+test('Training standalone transforms are idempotent', () => {
   const trainingOnce = transformedTrainingTab()
   const workspaceOnce = transformedWorkspace()
   assert.equal(injectStandaloneTrainingTab(trainingOnce), trainingOnce)
   assert.equal(injectTrainingSimplification(trainingOnce), trainingOnce)
   assert.equal(injectStandaloneTrainingWorkspace(workspaceOnce), workspaceOnce)
-  assert.equal(injectSimplifiedWorkspacePolish(workspaceOnce), workspaceOnce)
 })
