@@ -12,6 +12,7 @@ test('the legacy TPH DOM sidecar is no longer loaded', () => {
 })
 
 test('the shift clock sidecar only owns clock and shift-end display', () => {
+  assert.doesNotThrow(() => new Function(clockSidecar))
   assert.match(clockSidecar, /Hours Worked \/ Remaining/)
   assert.match(clockSidecar, /Shift ends/)
   assert.doesNotMatch(clockSidecar, /Shift TPH Status/)
